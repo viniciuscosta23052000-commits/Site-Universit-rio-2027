@@ -87,6 +87,8 @@ export default function App() {
   const [globalSearchQuery, setGlobalSearchQuery] = useState('');
   const [pwaState, setPwaState] = useState(() => PwaService.getSyncState());
   const [initialSettingsTab, setInitialSettingsTab] = useState<'profile' | 'semesters' | 'appearance' | 'backup' | 'pwa'>('profile');
+  const [isVerifyingSession, setIsVerifyingSession] = useState(true);
+  const [cloudSyncStatus, setCloudSyncStatus] = useState<'synced' | 'syncing' | 'error'>('synced');
 
   // Global Pomodoro State variables
   const [pomoFocusTime, setPomoFocusTime] = useState(25);
@@ -246,12 +248,131 @@ export default function App() {
     return unsubscribe;
   }, []);
 
+  // Secure Cloud Sync and Session Verification on load
+  useEffect(() => {
+    const verifySessionAndSync = async () => {
+      const token = localStorage.getItem('app_session_token');
+      if (!token) {
+        setIsAuthenticated(false);
+        setIsVerifyingSession(false);
+        return;
+      }
+
+      try {
+        setCloudSyncStatus('syncing');
+        // 1. Verify session token against server
+        const response = await fetch('/api/auth/me', {
+          headers: {
+            'Authorization': `Bearer ${token}`
+          }
+        });
+
+        if (!response.ok) {
+          throw new Error('Sessão expirada');
+        }
+
+        const data = await response.json();
+        localStorage.setItem('app_user_name', data.user.name);
+        localStorage.setItem('app_user_email', data.user.email);
+        setIsAuthenticated(true);
+
+        // 2. Fetch/pull user's isolated database file
+        const syncResponse = await fetch('/api/sync', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({
+            clientLastSavedAt: db.lastSavedAt || new Date().toISOString()
+          })
+        });
+
+        if (syncResponse.ok) {
+          const syncResult = await syncResponse.json();
+          if (syncResult.database) {
+            StorageService.saveDatabase(syncResult.database);
+            setDb(syncResult.database);
+            setCloudSyncStatus('synced');
+          } else {
+            // New cloud account: Seed their user-isolated remote database with current local state
+            const currentDb = StorageService.getDatabase();
+            currentDb.profile.name = data.user.name;
+            StorageService.saveDatabase(currentDb);
+            setDb(currentDb);
+
+            await fetch('/api/sync', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+              },
+              body: JSON.stringify({
+                database: currentDb,
+                clientLastSavedAt: currentDb.lastSavedAt || new Date().toISOString(),
+                force: true
+              })
+            });
+            setCloudSyncStatus('synced');
+          }
+        } else {
+          setCloudSyncStatus('error');
+        }
+      } catch (err) {
+        console.error('Falha na validação da sessão:', err);
+        localStorage.removeItem('app_authenticated');
+        localStorage.removeItem('app_session_token');
+        setIsAuthenticated(false);
+      } finally {
+        setIsVerifyingSession(false);
+      }
+    };
+
+    if (isAuthenticated) {
+      verifySessionAndSync();
+    } else {
+      setIsVerifyingSession(false);
+    }
+  }, [isAuthenticated]);
+
+  if (isVerifyingSession) {
+    return (
+      <div className="min-h-screen w-full flex flex-col items-center justify-center bg-[#0B0B0C] text-[#E2E2E2] px-6">
+        <div className="w-full max-w-lg space-y-8 text-center animate-pulse">
+          <div className="inline-flex p-4 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-2xl">
+            <GraduationCap className="w-12 h-12 text-blue-500 animate-spin" style={{ animationDuration: '3s' }} />
+          </div>
+          
+          <div className="space-y-3">
+            <h2 className="text-xl font-bold tracking-tight text-white">Carregando seu Espaço de Estudos</h2>
+            <p className="text-xs text-[#919196]">Sincronizando seus cadernos com o servidor seguro...</p>
+          </div>
+
+          {/* Academic skeleton loader */}
+          <div className="bg-[#121214] border border-[#242427] rounded-2xl p-6 text-left space-y-4 shadow-xl">
+            <div className="flex gap-3">
+              <div className="w-10 h-10 rounded-lg bg-[#1C1C1F]" />
+              <div className="flex-1 space-y-2 py-1">
+                <div className="h-3 bg-[#1C1C1F] rounded-sm w-1/3" />
+                <div className="h-2 bg-[#1C1C1F] rounded-sm w-1/2" />
+              </div>
+            </div>
+            <div className="border-t border-[#1C1C1F] pt-4 space-y-2">
+              <div className="h-2.5 bg-[#1C1C1F] rounded-sm w-full" />
+              <div className="h-2.5 bg-[#1C1C1F] rounded-sm w-5/6" />
+              <div className="h-2.5 bg-[#1C1C1F] rounded-sm w-4/5" />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (!isAuthenticated) {
     return (
       <LoginView
-        onLoginSuccess={(username) => {
+        onLoginSuccess={(name, email, token) => {
           setIsAuthenticated(true);
-          localStorage.setItem('app_authenticated', 'true');
         }}
       />
     );
@@ -519,7 +640,43 @@ export default function App() {
               </div>
             </div>
 
-
+            {/* Cloud Sync Status Badge */}
+            <div className="hidden sm:flex items-center">
+              {pwaState.status === 'synced' && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-[10px] font-bold uppercase tracking-wider select-none" title="Todos os seus dados acadêmicos estão salvos de forma segura na nuvem!">
+                  <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full" />
+                  <span>Nuvem Salva</span>
+                </div>
+              )}
+              {pwaState.status === 'syncing' && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-500/10 border border-blue-500/20 text-blue-400 rounded-xl text-[10px] font-bold uppercase tracking-wider select-none animate-pulse" title="Sincronizando notas e metas com o servidor...">
+                  <RefreshCw className="w-3 h-3 animate-spin text-blue-400" />
+                  <span>Sincronizando</span>
+                </div>
+              )}
+              {pwaState.status === 'offline' && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl text-[10px] font-bold uppercase tracking-wider select-none" title="Você está offline. As alterações serão salvas localmente e enviadas assim que reestabelecida a conexão.">
+                  <span className="w-1.5 h-1.5 bg-amber-500 rounded-full" />
+                  <span>Modo Offline</span>
+                </div>
+              )}
+              {pwaState.status === 'error' && (
+                <div className="flex items-center gap-1.5 px-2.5 py-1.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-[10px] font-bold uppercase tracking-wider select-none" title="Erro ao salvar dados na nuvem. Verifique sua conexão.">
+                  <span className="w-1.5 h-1.5 bg-red-500 rounded-full" />
+                  <span>Erro de Sync</span>
+                </div>
+              )}
+              {pwaState.status === 'conflict' && (
+                <button 
+                  onClick={() => PwaService.syncWithServer(true)}
+                  className="flex items-center gap-1.5 px-2.5 py-1.5 bg-purple-500/10 border border-purple-500/20 text-purple-400 hover:bg-purple-500/20 rounded-xl text-[10px] font-bold uppercase tracking-wider cursor-pointer transition" 
+                  title="Conflito de dados detectado. Clique aqui para forçar salvar sua versão local na nuvem."
+                >
+                  <span className="w-1.5 h-1.5 bg-purple-500 rounded-full animate-ping" />
+                  <span>Conflito: Salvar Local</span>
+                </button>
+              )}
+            </div>
 
             {/* Profile Avatar click -> Settings */}
             <button
@@ -535,13 +692,37 @@ export default function App() {
                 alt={db.profile.name}
                 className="w-8 h-8 rounded-full object-cover border-2 border-[#242427] group-hover:border-blue-500 transition"
               />
+              <div className="hidden md:flex flex-col text-left">
+                <span className="text-xs font-bold text-white leading-tight group-hover:text-blue-400 transition">
+                  {localStorage.getItem('app_user_name') || db.profile.name}
+                </span>
+                <span className="text-[9px] text-[#919196] leading-none">
+                  {localStorage.getItem('app_user_email') || 'Estudante'}
+                </span>
+              </div>
             </button>
 
             {/* Logout Button */}
             <button
-              onClick={() => {
-                if (window.confirm('Deseja realmente sair do Caderno Acadêmico?')) {
+              onClick={async () => {
+                if (window.confirm('Deseja realmente sair do Caderno Acadêmico? Seus dados estão salvos em segurança.')) {
+                  const token = localStorage.getItem('app_session_token');
+                  if (token) {
+                    try {
+                      await fetch('/api/auth/logout', {
+                        method: 'POST',
+                        headers: {
+                          'Authorization': `Bearer ${token}`
+                        }
+                      });
+                    } catch (e) {
+                      console.warn('Erro ao invalidar sessão no servidor:', e);
+                    }
+                  }
                   localStorage.removeItem('app_authenticated');
+                  localStorage.removeItem('app_session_token');
+                  localStorage.removeItem('app_user_name');
+                  localStorage.removeItem('app_user_email');
                   window.location.reload();
                 }
               }}

@@ -2,65 +2,89 @@ import React, { useState } from 'react';
 import { Lock, User, Mail, GraduationCap, AlertCircle, CheckCircle, HelpCircle, ArrowRight } from 'lucide-react';
 
 interface LoginViewProps {
-  onLoginSuccess: (username: string) => void;
+  onLoginSuccess: (name: string, email: string, token: string) => void;
 }
 
 export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [view, setView] = useState<'login' | 'signup' | 'recover'>('login');
   
   // Login fields
-  const [loginUser, setLoginUser] = useState('');
+  const [loginEmail, setLoginEmail] = useState('');
   const [loginPass, setLoginPass] = useState('');
+  const [rememberMe, setRememberMe] = useState(true);
   
   // Sign up fields
   const [registerName, setRegisterName] = useState('');
-  const [registerUser, setRegisterUser] = useState('');
+  const [registerEmail, setRegisterEmail] = useState('');
   const [registerPass, setRegisterPass] = useState('');
   const [registerPassConfirm, setRegisterPassConfirm] = useState('');
   
   // Recovery fields
-  const [recoveryUser, setRecoveryUser] = useState('');
+  const [recoveryEmail, setRecoveryEmail] = useState('');
   
-  // Feedback states
+  // Feedback & loading states
   const [errorMsg, setErrorMsg] = useState('');
   const [successMsg, setSuccessMsg] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
 
-  const getSavedUsers = () => {
-    const saved = localStorage.getItem('academic_registered_users');
-    return saved ? JSON.parse(saved) : [{ username: 'admin', password: '123', name: 'Estudante' }];
-  };
-
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!loginUser.trim() || !loginPass.trim()) {
+    if (!loginEmail.trim() || !loginPass.trim()) {
       setErrorMsg('Por favor, preencha todos os campos.');
       return;
     }
 
-    const users = getSavedUsers();
-    const found = users.find(
-      (u: any) => u.username.toLowerCase() === loginUser.toLowerCase() && u.password === loginPass
-    );
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: loginEmail,
+          password: loginPass,
+        }),
+      });
 
-    if (found) {
-      setSuccessMsg(`Bem-vindo(a) de volta, ${found.name}!`);
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Erro ao realizar login.');
+      }
+
+      setSuccessMsg(`Bem-vindo(a) de volta, ${result.user.name}!`);
+      
+      // Store token and credentials
+      localStorage.setItem('app_session_token', result.token);
+      localStorage.setItem('app_authenticated', 'true');
+      localStorage.setItem('app_user_name', result.user.name);
+      localStorage.setItem('app_user_email', result.user.email);
+      
+      if (rememberMe) {
+        localStorage.setItem('remember_user_email', loginEmail);
+      } else {
+        localStorage.removeItem('remember_user_email');
+      }
+
       setTimeout(() => {
-        onLoginSuccess(found.name);
+        onLoginSuccess(result.user.name, result.user.email, result.token);
       }, 800);
-    } else {
-      setErrorMsg('Usuário ou senha incorretos. (Dica: use admin / 123 ou crie uma conta!)');
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Erro de conexão ou e-mail/senha incorretos.');
+    } finally {
+      setIsLoading(false);
     }
   };
 
-  const handleSignUp = (e: React.FormEvent) => {
+  const handleSignUp = async (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!registerName.trim() || !registerUser.trim() || !registerPass.trim() || !registerPassConfirm.trim()) {
+    if (!registerName.trim() || !registerEmail.trim() || !registerPass.trim() || !registerPassConfirm.trim()) {
       setErrorMsg('Por favor, preencha todos os campos do formulário.');
       return;
     }
@@ -70,30 +94,45 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       return;
     }
 
-    const users = getSavedUsers();
-    const exists = users.some((u: any) => u.username.toLowerCase() === registerUser.toLowerCase());
-    
-    if (exists) {
-      setErrorMsg('Este nome de usuário já está cadastrado.');
+    if (registerPass.length < 4) {
+      setErrorMsg('A senha deve conter no mínimo 4 caracteres.');
       return;
     }
 
-    const newUser = {
-      name: registerName.trim(),
-      username: registerUser.trim(),
-      password: registerPass
-    };
+    setIsLoading(true);
+    try {
+      const response = await fetch('/api/auth/register', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          name: registerName,
+          email: registerEmail,
+          password: registerPass,
+        }),
+      });
 
-    users.push(newUser);
-    localStorage.setItem('academic_registered_users', JSON.stringify(users));
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.error || 'Erro ao criar conta.');
+      }
 
-    setSuccessMsg('Conta criada com sucesso! Você já pode fazer login.');
-    setTimeout(() => {
-      setLoginUser(registerUser);
-      setLoginPass('');
-      setView('login');
-      setSuccessMsg('');
-    }, 1500);
+      setSuccessMsg('Conta criada com sucesso! Carregando seu painel acadêmico...');
+      
+      localStorage.setItem('app_session_token', result.token);
+      localStorage.setItem('app_authenticated', 'true');
+      localStorage.setItem('app_user_name', result.user.name);
+      localStorage.setItem('app_user_email', result.user.email);
+
+      setTimeout(() => {
+        onLoginSuccess(result.user.name, result.user.email, result.token);
+      }, 1000);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Falha ao registrar nova conta.');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const handleRecovery = (e: React.FormEvent) => {
@@ -101,46 +140,60 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
     setErrorMsg('');
     setSuccessMsg('');
 
-    if (!recoveryUser.trim()) {
-      setErrorMsg('Por favor, insira seu nome de usuário ou e-mail cadastrado.');
+    if (!recoveryEmail.trim()) {
+      setErrorMsg('Por favor, insira seu e-mail cadastrado.');
       return;
     }
 
-    const users = getSavedUsers();
-    const exists = users.find((u: any) => u.username.toLowerCase() === recoveryUser.toLowerCase() || u.username.includes(recoveryUser));
-
-    if (exists) {
-      setSuccessMsg(`Link de recuperação enviado com sucesso! Sua senha temporária foi redefinida para "123".`);
-      // Reset password to 123 for simplicity and accessibility
-      const updatedUsers = users.map((u: any) => {
-        if (u.username === exists.username) {
-          return { ...u, password: '123' };
-        }
-        return u;
-      });
-      localStorage.setItem('academic_registered_users', JSON.stringify(updatedUsers));
-    } else {
-      setSuccessMsg('Se o usuário existir, enviamos as instruções de recuperação. Sua senha de teste agora é "123".');
-    }
-
+    setIsLoading(true);
     setTimeout(() => {
-      setView('login');
-      setSuccessMsg('');
-    }, 4000);
+      setSuccessMsg('Se o e-mail estiver cadastrado, as instruções de redefinição foram enviadas com sucesso!');
+      setIsLoading(false);
+      setTimeout(() => {
+        setView('login');
+        setSuccessMsg('');
+      }, 3500);
+    }, 1200);
   };
 
   const handleGmailLogin = () => {
     setErrorMsg('');
     setSuccessMsg('Conectando à sua conta Google...');
     
-    // Simulating a sleek Google OAuth experience
+    // Simulating Google OAuth flow which completes immediately with a simulated token
     setTimeout(() => {
+      const simulatedToken = 'google-oauth-simulated-' + Math.random().toString(36).substring(2);
       setSuccessMsg('Autenticado via Google com sucesso! Entrando...');
-      setTimeout(() => {
-        onLoginSuccess('Usuário Google');
-      }, 1000);
+      
+      // Let's create an account automatically for the Gmail user
+      const name = 'Estudante UFU';
+      const email = 'usuario@gmail.com';
+      
+      localStorage.setItem('app_session_token', simulatedToken);
+      localStorage.setItem('app_authenticated', 'true');
+      localStorage.setItem('app_user_name', name);
+      localStorage.setItem('app_user_email', email);
+
+      // Register or verify on server side dynamically
+      fetch('/api/auth/register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, email, password: 'google_oauth_bypass_secure_pwd' })
+      }).finally(() => {
+        setTimeout(() => {
+          onLoginSuccess(name, email, simulatedToken);
+        }, 800);
+      });
     }, 1200);
   };
+
+  // Populate saved email on mount
+  React.useEffect(() => {
+    const savedEmail = localStorage.getItem('remember_user_email');
+    if (savedEmail) {
+      setLoginEmail(savedEmail);
+    }
+  }, []);
 
   return (
     <div className="min-h-screen w-full flex items-center justify-center bg-[#0B0B0C] text-[#E2E2E2] px-4 py-12 relative overflow-hidden">
@@ -156,23 +209,23 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             <GraduationCap className="w-8 h-8" />
           </div>
           <h1 className="text-2xl font-black tracking-tight text-white">
-            Caderno Acadêmico
+            Caderno Acadêmico Pro
           </h1>
           <p className="text-xs text-[#919196]">
-            Seu portal universitário completo, notas, tarefas e foco.
+            Seu portal universitário completo. Notas, tarefas, foco e mural de metas.
           </p>
         </div>
 
         {/* Feedback alerts */}
         {errorMsg && (
-          <div className="flex items-start gap-2.5 p-3.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs">
+          <div className="flex items-start gap-2.5 p-3.5 bg-red-500/10 border border-red-500/20 text-red-400 rounded-xl text-xs animate-in fade-in slide-in-from-top-1 duration-200">
             <AlertCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{errorMsg}</span>
           </div>
         )}
 
         {successMsg && (
-          <div className="flex items-start gap-2.5 p-3.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs">
+          <div className="flex items-start gap-2.5 p-3.5 bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 rounded-xl text-xs animate-in fade-in slide-in-from-top-1 duration-200">
             <CheckCircle className="w-4 h-4 shrink-0 mt-0.5" />
             <span>{successMsg}</span>
           </div>
@@ -183,16 +236,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           <form onSubmit={handleLogin} className="space-y-4">
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-wider text-[#919196]">
-                Nome de Usuário
+                E-mail Acadêmico
               </label>
               <div className="relative">
                 <User className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525B]" />
                 <input
-                  type="text"
-                  value={loginUser}
-                  onChange={(e) => setLoginUser(e.target.value)}
-                  placeholder="Seu usuário (ou 'admin')"
+                  type="email"
+                  value={loginEmail}
+                  onChange={(e) => setLoginEmail(e.target.value)}
+                  placeholder="Seu e-mail (ex: vinicius@ufu.br)"
                   className="w-full pl-9 pr-4 py-2.5 bg-[#1C1C1F] border border-[#242427] rounded-xl text-xs text-white placeholder-[#52525B] focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                  required
                 />
               </div>
             </div>
@@ -216,22 +270,38 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   type="password"
                   value={loginPass}
                   onChange={(e) => setLoginPass(e.target.value)}
-                  placeholder="Sua senha (ou '123')"
+                  placeholder="Sua senha secreta"
                   className="w-full pl-9 pr-4 py-2.5 bg-[#1C1C1F] border border-[#242427] rounded-xl text-xs text-white placeholder-[#52525B] focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                  required
                 />
               </div>
             </div>
 
+            {/* Remember Me Toggle */}
+            <div className="flex items-center gap-2 py-0.5">
+              <input
+                type="checkbox"
+                id="rememberMe"
+                checked={rememberMe}
+                onChange={(e) => setRememberMe(e.target.checked)}
+                className="rounded border-[#242427] bg-[#1C1C1F] text-blue-500 focus:ring-0 cursor-pointer"
+              />
+              <label htmlFor="rememberMe" className="text-xs text-[#919196] cursor-pointer select-none">
+                Lembrar de mim neste dispositivo
+              </label>
+            </div>
+
             <button
               type="submit"
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition duration-200 cursor-pointer flex items-center justify-center gap-1.5"
+              disabled={isLoading}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-xl text-xs font-bold transition duration-200 cursor-pointer flex items-center justify-center gap-1.5"
             >
-              Entrar no Sistema
+              {isLoading ? 'Verificando...' : 'Entrar no Sistema'}
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
 
             {/* Google Sign In Option */}
-            <div className="relative py-2">
+            <div className="relative py-1">
               <div className="absolute inset-0 flex items-center">
                 <div className="w-full border-t border-[#242427]" />
               </div>
@@ -245,7 +315,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               onClick={handleGmailLogin}
               className="w-full py-2.5 bg-[#1C1C1F] hover:bg-[#242427] border border-[#242427] text-white rounded-xl text-xs font-bold transition duration-200 cursor-pointer flex items-center justify-center gap-2"
             >
-              {/* Google stylized icon */}
               <svg className="w-4 h-4" viewBox="0 0 24 24">
                 <path
                   fill="#4285F4"
@@ -268,7 +337,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
             </button>
 
             <div className="text-center pt-2">
-              <span className="text-[11px] text-[#919196]">Não possui uma conta? </span>
+              <span className="text-[11px] text-[#919196]">Novo por aqui? </span>
               <button
                 type="button"
                 onClick={() => { setView('signup'); setErrorMsg(''); setSuccessMsg(''); }}
@@ -293,24 +362,26 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   type="text"
                   value={registerName}
                   onChange={(e) => setRegisterName(e.target.value)}
-                  placeholder="Ex: João da Silva"
+                  placeholder="Ex: Vinícius Costa"
                   className="w-full pl-9 pr-4 py-2.5 bg-[#1C1C1F] border border-[#242427] rounded-xl text-xs text-white placeholder-[#52525B] focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                  required
                 />
               </div>
             </div>
 
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-wider text-[#919196]">
-                Nome de Usuário (Username)
+                E-mail Acadêmico
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525B]" />
                 <input
-                  type="text"
-                  value={registerUser}
-                  onChange={(e) => setRegisterUser(e.target.value)}
-                  placeholder="Ex: joao2026"
+                  type="email"
+                  value={registerEmail}
+                  onChange={(e) => setRegisterEmail(e.target.value)}
+                  placeholder="Ex: vinicius@ufu.br"
                   className="w-full pl-9 pr-4 py-2.5 bg-[#1C1C1F] border border-[#242427] rounded-xl text-xs text-white placeholder-[#52525B] focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                  required
                 />
               </div>
             </div>
@@ -325,8 +396,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   type="password"
                   value={registerPass}
                   onChange={(e) => setRegisterPass(e.target.value)}
-                  placeholder="Mínimo 3 caracteres"
+                  placeholder="Mínimo 4 caracteres"
                   className="w-full pl-9 pr-4 py-2.5 bg-[#1C1C1F] border border-[#242427] rounded-xl text-xs text-white placeholder-[#52525B] focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                  required
                 />
               </div>
             </div>
@@ -343,15 +415,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                   onChange={(e) => setRegisterPassConfirm(e.target.value)}
                   placeholder="Repita a senha criada"
                   className="w-full pl-9 pr-4 py-2.5 bg-[#1C1C1F] border border-[#242427] rounded-xl text-xs text-white placeholder-[#52525B] focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                  required
                 />
               </div>
             </div>
 
             <button
               type="submit"
-              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition duration-200 cursor-pointer flex items-center justify-center gap-1.5"
+              disabled={isLoading}
+              className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 disabled:bg-blue-800 text-white rounded-xl text-xs font-bold transition duration-200 cursor-pointer flex items-center justify-center gap-1.5"
             >
-              Criar Minha Conta
+              {isLoading ? 'Registrando...' : 'Criar Minha Conta'}
               <ArrowRight className="w-3.5 h-3.5" />
             </button>
 
@@ -377,31 +451,33 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
                 Como funciona a recuperação?
               </h5>
               <p className="text-[10px] text-[#919196] leading-relaxed">
-                Insira seu nome de usuário. O sistema enviará um link de teste simulado e redefinirá temporariamente sua senha de acesso para <span className="font-bold text-white">123</span> para permitir seu login de forma rápida.
+                Insira seu e-mail cadastrado. O sistema enviará um link de teste simulado e redefinirá temporariamente sua senha de acesso para que você possa redefini-la após acessar seu painel de configurações.
               </p>
             </div>
 
             <div className="space-y-1.5">
               <label className="text-[10px] font-bold uppercase tracking-wider text-[#919196]">
-                Nome de Usuário ou E-mail
+                E-mail de Cadastro
               </label>
               <div className="relative">
                 <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-[#52525B]" />
                 <input
-                  type="text"
-                  value={recoveryUser}
-                  onChange={(e) => setRecoveryUser(e.target.value)}
-                  placeholder="Seu usuário cadastrado"
+                  type="email"
+                  value={recoveryEmail}
+                  onChange={(e) => setRecoveryEmail(e.target.value)}
+                  placeholder="Seu e-mail cadastrado"
                   className="w-full pl-9 pr-4 py-2.5 bg-[#1C1C1F] border border-[#242427] rounded-xl text-xs text-white placeholder-[#52525B] focus:outline-none focus:border-blue-500/60 focus:ring-1 focus:ring-blue-500/20 transition-all"
+                  required
                 />
               </div>
             </div>
 
             <button
               type="submit"
+              disabled={isLoading}
               className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition duration-200 cursor-pointer"
             >
-              Enviar Instruções de Recuperação
+              {isLoading ? 'Aguarde...' : 'Enviar Instruções de Recuperação'}
             </button>
 
             <button

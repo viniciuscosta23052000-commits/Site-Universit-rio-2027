@@ -2,6 +2,7 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import fs from "fs";
+import crypto from "crypto";
 import { GoogleGenAI } from "@google/genai";
 
 dotenv.config();
@@ -12,6 +13,150 @@ const PORT = 3000;
 // Body parser
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
+
+// Secure Multi-User File System Database Setup
+const DATA_DIR = path.join(process.cwd(), "data");
+if (!fs.existsSync(DATA_DIR)) {
+  fs.mkdirSync(DATA_DIR, { recursive: true });
+}
+const USERS_FILE = path.join(DATA_DIR, "users_credentials.json");
+
+// Persistent session tokens to survive server reboots
+const SESSIONS_FILE = path.join(DATA_DIR, "users_sessions.json");
+
+function loadUsers(): any[] {
+  if (fs.existsSync(USERS_FILE)) {
+    try {
+      return JSON.parse(fs.readFileSync(USERS_FILE, "utf8"));
+    } catch (e) {
+      return [];
+    }
+  }
+  return [];
+}
+
+function saveUsers(users: any[]) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2), "utf8");
+}
+
+function loadSessions(): Record<string, { email: string; name: string }> {
+  if (fs.existsSync(SESSIONS_FILE)) {
+    try {
+      return JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8"));
+    } catch (e) {
+      return {};
+    }
+  }
+  return {};
+}
+
+function saveSessions(sessions: Record<string, { email: string; name: string }>) {
+  fs.writeFileSync(SESSIONS_FILE, JSON.stringify(sessions, null, 2), "utf8");
+}
+
+// In-memory sessions reference backed by persistent file
+const activeSessions = loadSessions();
+
+function hashPassword(password: string): string {
+  return crypto.createHash("sha256").update(password).digest("hex");
+}
+
+// Authentication API Endpoints
+app.post("/api/auth/register", (req, res) => {
+  try {
+    const { name, email, password } = req.body;
+    if (!name || !email || !password) {
+      return res.status(400).json({ error: "Por favor, preencha todos os campos do formulário." });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const users = loadUsers();
+    
+    if (users.some(u => u.email === cleanEmail)) {
+      return res.status(400).json({ error: "Este endereço de e-mail já está cadastrado." });
+    }
+
+    const newUser = {
+      id: "usr-" + crypto.randomUUID(),
+      name: name.trim(),
+      email: cleanEmail,
+      passwordHash: hashPassword(password),
+      createdAt: new Date().toISOString()
+    };
+
+    users.push(newUser);
+    saveUsers(users);
+
+    // Create session token instantly
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    activeSessions[sessionToken] = { email: cleanEmail, name: newUser.name };
+    saveSessions(activeSessions);
+
+    return res.json({
+      success: true,
+      message: "Conta criada com sucesso!",
+      token: sessionToken,
+      user: { name: newUser.name, email: cleanEmail }
+    });
+  } catch (error: any) {
+    console.error("Erro no registro:", error);
+    return res.status(500).json({ error: "Erro interno ao realizar cadastro." });
+  }
+});
+
+app.post("/api/auth/login", (req, res) => {
+  try {
+    const { email, password } = req.body;
+    if (!email || !password) {
+      return res.status(400).json({ error: "Por favor, preencha todos os campos." });
+    }
+
+    const cleanEmail = email.trim().toLowerCase();
+    const users = loadUsers();
+    const foundUser = users.find(u => u.email === cleanEmail);
+
+    if (!foundUser || foundUser.passwordHash !== hashPassword(password)) {
+      return res.status(401).json({ error: "E-mail ou senha incorretos." });
+    }
+
+    // Generate new session token
+    const sessionToken = crypto.randomBytes(32).toString("hex");
+    activeSessions[sessionToken] = { email: cleanEmail, name: foundUser.name };
+    saveSessions(activeSessions);
+
+    return res.json({
+      success: true,
+      token: sessionToken,
+      user: { name: foundUser.name, email: cleanEmail }
+    });
+  } catch (error: any) {
+    console.error("Erro no login:", error);
+    return res.status(500).json({ error: "Erro interno no servidor de autenticação." });
+  }
+});
+
+app.get("/api/auth/me", (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(" ")[1];
+  
+  if (!token || !activeSessions[token]) {
+    return res.status(401).json({ error: "Sessão expirada ou não autenticada." });
+  }
+
+  const session = activeSessions[token];
+  return res.json({ success: true, user: session });
+});
+
+app.post("/api/auth/logout", (req, res) => {
+  const authHeader = req.headers.authorization;
+  const token = authHeader?.split(" ")[1];
+  
+  if (token && activeSessions[token]) {
+    delete activeSessions[token];
+    saveSessions(activeSessions);
+  }
+  return res.json({ success: true, message: "Sessão encerrada com sucesso." });
+});
 
 // Lazy initialize Gemini client
 function getGeminiClient(): GoogleGenAI | null {
@@ -488,24 +633,39 @@ ${transcriptionText}
   }
 });
 
-// Real-Time PWA Synchronization with server-side filesystem storage and conflict detection
-const serverDbPath = path.join(process.cwd(), "data_sync.json");
-
+// Real-Time PWA Synchronization with secure multi-tenant isolation
 app.post("/api/sync", async (req, res) => {
   try {
-    const { database, queue, clientLastSavedAt, force } = req.body;
-    if (!database) {
-      return res.status(400).json({ error: "database is required" });
+    const authHeader = req.headers.authorization;
+    const token = authHeader?.split(" ")[1];
+    
+    if (!token || !activeSessions[token]) {
+      return res.status(401).json({ error: "Acesso não autorizado. Sessão expirada ou inválida." });
     }
 
+    const session = activeSessions[token];
+    const safeEmail = session.email.replace(/[^a-zA-Z0-9]/g, "_");
+    const userDbPath = path.join(DATA_DIR, `database_${safeEmail}.json`);
+
+    const { database, clientLastSavedAt, force } = req.body;
+
     let serverDb: any = null;
-    if (fs.existsSync(serverDbPath)) {
+    if (fs.existsSync(userDbPath)) {
       try {
-        const fileContent = fs.readFileSync(serverDbPath, "utf8");
+        const fileContent = fs.readFileSync(userDbPath, "utf8");
         serverDb = JSON.parse(fileContent);
       } catch (e) {
-        console.warn("Erro ao ler data_sync.json, ignorando:", e);
+        console.warn(`[Sync] Erro ao ler banco do usuário ${session.email}, ignorando:`, e);
       }
+    }
+
+    // If only pulling data (e.g. initial login sync)
+    if (!database) {
+      return res.json({
+        success: true,
+        database: serverDb,
+        message: serverDb ? "Dados recuperados da nuvem." : "Nenhum dado salvo em nuvem ainda."
+      });
     }
 
     // Conflict detection logic
@@ -515,7 +675,7 @@ app.post("/api/sync", async (req, res) => {
 
       // If server version is newer and different, signal conflict
       if (serverTime > clientTime && serverDb.lastSavedAt !== database.lastSavedAt) {
-        console.log(`[Sync] Conflito detectado: Servidor (${serverDb.lastSavedAt}) > Cliente (${clientLastSavedAt})`);
+        console.log(`[Sync] Conflito detectado para ${session.email}: Servidor (${serverDb.lastSavedAt}) > Cliente (${clientLastSavedAt})`);
         return res.json({
           conflict: true,
           serverDatabase: serverDb,
@@ -524,9 +684,9 @@ app.post("/api/sync", async (req, res) => {
       }
     }
 
-    // Overwrite server database
-    fs.writeFileSync(serverDbPath, JSON.stringify(database, null, 2), "utf8");
-    console.log(`[Sync] Sincronização bem-sucedida. lastSavedAt: ${database.lastSavedAt}`);
+    // Overwrite user-isolated server database
+    fs.writeFileSync(userDbPath, JSON.stringify(database, null, 2), "utf8");
+    console.log(`[Sync] Sincronização de ${session.email} bem-sucedida. lastSavedAt: ${database.lastSavedAt}`);
 
     return res.json({
       success: true,

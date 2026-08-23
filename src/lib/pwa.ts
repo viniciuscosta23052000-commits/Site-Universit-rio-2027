@@ -178,11 +178,17 @@ export class PwaService {
         force,
       };
 
+      const token = localStorage.getItem('app_session_token');
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const response = await fetch('/api/sync', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
+        headers,
         body: JSON.stringify(payload),
       });
 

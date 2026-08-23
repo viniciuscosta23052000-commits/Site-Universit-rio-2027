@@ -95,6 +95,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
   const [professor, setProfessor] = useState(initialLesson?.professor || discipline?.professor || '');
   const [date, setDate] = useState(initialLesson?.date || new Date().toISOString().split('T')[0]);
   const [pageFormat, setPageFormat] = useState<'a4' | 'a5' | 'letter'>(initialLesson?.pageFormat || 'a4');
+  const [headerText, setHeaderText] = useState(initialLesson?.headerText || discipline?.name || 'MATÉRIA');
 
   // Ribbon Navigation state
   const [activeRibbonTab, setActiveRibbonTab] = useState<
@@ -153,6 +154,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
 
   // Image editing
   const [editingDocImage, setEditingDocImage] = useState<HTMLImageElement | null>(null);
+  const [selectedDocImage, setSelectedDocImage] = useState<HTMLImageElement | null>(null);
   const [newImageOriginalSrc, setNewImageOriginalSrc] = useState<string | null>(null);
   const [isNewImageEditorOpen, setIsNewImageEditorOpen] = useState(false);
 
@@ -217,7 +219,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
   };
 
   // Document saving
-  const handleSave = (silent = false) => {
+  const handleSave = (silent = false, customTitle?: string, customDate?: string, customHeaderText?: string) => {
     if (!lesson) return;
     setSaveStatus('saving');
 
@@ -225,10 +227,11 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
 
     const updated: Lesson = {
       ...lesson,
-      title,
+      title: customTitle !== undefined ? customTitle : title,
       lessonNumber,
       professor,
-      date,
+      date: customDate !== undefined ? customDate : date,
+      headerText: customHeaderText !== undefined ? customHeaderText : headerText,
       pageFormat,
       contentHtml,
       canvasElements,
@@ -257,6 +260,29 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
       editorContentRef.current.focus();
     }
     updateDocumentMetrics();
+  };
+
+  const applyStudyMarking = (type: 'prova' | 'conceito' | 'dica') => {
+    const selection = window.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.toString().trim() === '') {
+      alert('Por favor, selecione um trecho de texto no editor primeiro para aplicar a marcação de estudo.');
+      return;
+    }
+    const range = selection.getRangeAt(0);
+    const selectedText = range.toString();
+
+    let html = '';
+    if (type === 'prova') {
+      html = `<span class="study-mark-prova" style="background-color: #fef08a; color: #854d0e; border: 1px solid #facc15; padding: 2px 6px; border-radius: 4px; font-weight: 500; display: inline-flex; items-center; gap: 4px; margin: 0 2px;"><span style="background-color: #eab308; color: white; font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; line-height: 1; letter-spacing: 0.5px;" contenteditable="false">PROVA</span> ${selectedText}</span>`;
+    } else if (type === 'conceito') {
+      html = `<span class="study-mark-conceito" style="background-color: #dbeafe; color: #1e3a8a; border-left: 3px solid #3b82f6; padding: 2px 6px; border-radius: 2px; font-weight: 500; display: inline-flex; items-center; gap: 4px; margin: 0 2px;"><span style="background-color: #3b82f6; color: white; font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; line-height: 1; letter-spacing: 0.5px;" contenteditable="false">CONCEITO</span> ${selectedText}</span>`;
+    } else if (type === 'dica') {
+      html = `<span class="study-mark-dica" style="background-color: #dcfce7; color: #166534; border: 1px solid #4ade80; padding: 2px 6px; border-radius: 4px; font-weight: 500; display: inline-flex; items-center; gap: 4px; margin: 0 2px;"><span style="background-color: #22c55e; color: white; font-size: 9px; font-weight: 800; padding: 1px 4px; border-radius: 3px; line-height: 1; letter-spacing: 0.5px;" contenteditable="false">DICA</span> ${selectedText}</span>`;
+    }
+
+    document.execCommand('insertHTML', false, html);
+    updateDocumentMetrics();
+    handleSave(true);
   };
 
   // Quick document template insertion helpers
@@ -323,8 +349,13 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
 
   const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
     const target = e.target as HTMLElement;
-    if (target.tagName === 'IMG' && target.classList.contains('note-editable-image')) {
-      setEditingDocImage(target as HTMLImageElement);
+    if (target.tagName === 'IMG') {
+      if (!target.classList.contains('note-editable-image')) {
+        target.classList.add('note-editable-image');
+      }
+      setSelectedDocImage(target as HTMLImageElement);
+    } else {
+      setSelectedDocImage(null);
     }
   };
 
@@ -1048,6 +1079,35 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
               </div>
             </div>
 
+            {/* Study Marking / Marcações de Estudo group */}
+            <div className="flex items-center gap-1.5 border-r border-[#2F2F33] pr-3 h-9 select-none">
+              <span className="text-[10px] text-[#A1A1AA] font-bold mr-0.5 uppercase tracking-wider">Estudos:</span>
+              <button
+                onClick={() => applyStudyMarking('prova')}
+                className="px-2 py-1 bg-yellow-500/10 hover:bg-yellow-500/20 text-yellow-400 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer transition border border-yellow-500/20"
+                title="Marcar como Importante para Prova"
+              >
+                <span className="w-2 h-2 rounded-full bg-yellow-400 shadow-sm" />
+                <span>Prova</span>
+              </button>
+              <button
+                onClick={() => applyStudyMarking('conceito')}
+                className="px-2 py-1 bg-blue-500/10 hover:bg-blue-500/20 text-blue-400 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer transition border border-blue-500/20"
+                title="Marcar como Conceito-Chave"
+              >
+                <span className="w-2 h-2 rounded bg-blue-400 shadow-sm" />
+                <span>Conceito</span>
+              </button>
+              <button
+                onClick={() => applyStudyMarking('dica')}
+                className="px-2 py-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg font-bold flex items-center gap-1.5 cursor-pointer transition border border-emerald-500/20"
+                title="Marcar como Dica do Professor"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shadow-sm" />
+                <span>Dica</span>
+              </button>
+            </div>
+
             {/* Alignments & Line height Spacing */}
             <div className="flex items-center gap-1 border-r border-[#2F2F33] pr-3 h-9">
               <button
@@ -1241,7 +1301,23 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
               className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
             >
               <ImageIcon className="w-3.5 h-3.5 text-sky-400" />
-              <span>Imagem</span>
+              <span>Imagem (Upload)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const url = prompt('Cole a URL da imagem da web que deseja inserir:');
+                if (url) {
+                  const imgHtml = `<img src="${url}" class="note-editable-image rounded-xl my-4 max-w-full cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all duration-200" style="display: block; margin-left: auto; margin-right: auto; width: 50%; max-height: 400px;" />`;
+                  formatDoc('insertHTML', imgHtml);
+                  handleSave(true);
+                }
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Inserir imagem da web por endereço URL"
+            >
+              <Link className="w-3.5 h-3.5 text-sky-400" />
+              <span>Imagem por URL</span>
             </button>
 
             <button
@@ -2005,23 +2081,72 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
                   >
                     <div className={marginClasses[margins]}>
                       
-                      {/* Document Header Metadata Section */}
-                      <div className={`border-b ${sheetStyle.headerBorder} pb-4 mb-6 flex items-start justify-between`}>
-                        <div>
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-blue-500">
-                            {discipline?.name || 'DIÁRIO ACADÊMICO UNIVERSITÁRIO'}
-                          </p>
-                          <h1 className={`text-2xl font-bold mt-1 tracking-tight ${sheetStyle.title}`}>
-                            {title}
-                          </h1>
-                          <p className={`text-xs ${sheetStyle.secText} mt-1 font-medium`}>
-                            {lessonNumber} • Docente: {professor || 'Não informado'} • Registrado: {date}
-                          </p>
-                        </div>
-                        <div className="text-right">
-                          <span className={`text-[9px] font-mono font-semibold ${sheetStyle.secText} bg-[#E4E4E7]/40 dark:bg-[#1C1C1F]/60 px-2.5 py-1 rounded-md border ${sheetStyle.headerBorder}`}>
-                            Página 1 de 1
+                      {/* Document Header Metadata Section (Fully Editable 3-Column Header) */}
+                      <div className={`p-4 mb-6 rounded-xl border flex items-stretch divide-x transition-all select-none ${
+                        sheetStyle.isWhite 
+                          ? 'bg-zinc-50/80 border-zinc-200/80 divide-zinc-200' 
+                          : 'bg-[#18181b]/50 border-zinc-800/80 divide-zinc-800'
+                      }`}>
+                        {/* RESUMO COLUMN */}
+                        <div className="flex-1 px-3 flex flex-col justify-between">
+                          <span className={`text-[9px] font-extrabold tracking-widest uppercase mb-1.5 ${
+                            sheetStyle.isWhite ? 'text-zinc-400' : 'text-zinc-500'
+                          }`}>
+                            RESUMO / MATÉRIA
                           </span>
+                          <input
+                            type="text"
+                            value={headerText}
+                            onChange={(e) => {
+                              setHeaderText(e.target.value);
+                              handleSave(true, undefined, undefined, e.target.value);
+                            }}
+                            placeholder="MATÉRIA"
+                            className={`w-full bg-transparent border-none p-0 text-xs font-bold tracking-tight focus:ring-0 focus:outline-none focus:border-none ${
+                              sheetStyle.isWhite ? 'text-zinc-800 placeholder-zinc-300' : 'text-white placeholder-zinc-700'
+                            }`}
+                          />
+                        </div>
+
+                        {/* TÍTULO COLUMN */}
+                        <div className="flex-[1.5] px-4 flex flex-col justify-between">
+                          <span className={`text-[9px] font-extrabold tracking-widest uppercase mb-1.5 ${
+                            sheetStyle.isWhite ? 'text-zinc-400' : 'text-zinc-500'
+                          }`}>
+                            TÍTULO DO DOCUMENTO
+                          </span>
+                          <input
+                            type="text"
+                            value={title}
+                            onChange={(e) => {
+                              setTitle(e.target.value);
+                              handleSave(true, e.target.value);
+                            }}
+                            placeholder="TÍTULO DA MATÉRIA"
+                            className={`w-full bg-transparent border-none p-0 text-sm font-extrabold tracking-tight focus:ring-0 focus:outline-none focus:border-none ${
+                              sheetStyle.isWhite ? 'text-blue-600 placeholder-zinc-300' : 'text-sky-400 placeholder-zinc-700'
+                            }`}
+                          />
+                        </div>
+
+                        {/* DATA COLUMN */}
+                        <div className="flex-[0.8] pl-4 pr-2 flex flex-col justify-between">
+                          <span className={`text-[9px] font-extrabold tracking-widest uppercase mb-1.5 ${
+                            sheetStyle.isWhite ? 'text-zinc-400' : 'text-zinc-500'
+                          }`}>
+                            DATA DA MATÉRIA
+                          </span>
+                          <input
+                            type="date"
+                            value={date}
+                            onChange={(e) => {
+                              setDate(e.target.value);
+                              handleSave(true, undefined, e.target.value);
+                            }}
+                            className={`w-full bg-transparent border-none p-0 text-xs font-bold tracking-tight focus:ring-0 focus:outline-none focus:border-none cursor-pointer ${
+                              sheetStyle.isWhite ? 'text-zinc-700 [color-scheme:light]' : 'text-[#EDEDED] [color-scheme:dark]'
+                            }`}
+                          />
                         </div>
                       </div>
 
@@ -2354,6 +2479,131 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
           aspectRatios={['free', '16:9', '4:3', '1:1']}
           onSave={handleSaveExistingDocImage}
         />
+      )}
+
+      {/* Floating Image Control Panel */}
+      {selectedDocImage && (
+        <div className="fixed bottom-12 left-1/2 transform -translate-x-1/2 z-50 bg-[#121214] border border-[#2E2E33] px-4 py-2.5 rounded-2xl shadow-2xl flex items-center gap-4 animate-in slide-in-from-bottom-5 duration-200 no-print">
+          <div className="flex items-center gap-2">
+            <ImageIcon className="w-4 h-4 text-blue-400" />
+            <span className="text-[11px] font-bold text-white whitespace-nowrap">Imagem Selecionada</span>
+          </div>
+          
+          <div className="w-px h-6 bg-[#2F2F33]" />
+          
+          {/* Resizing controls */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-gray-400 uppercase font-semibold">Tamanho:</span>
+            {[
+              { pct: '25%', label: '25%' },
+              { pct: '50%', label: '50%' },
+              { pct: '75%', label: '75%' },
+              { pct: '100%', label: '100%' },
+            ].map((sz) => {
+              const isCurrent = selectedDocImage.style.width === sz.pct;
+              return (
+                <button
+                  key={sz.pct}
+                  onClick={() => {
+                    selectedDocImage.style.width = sz.pct;
+                    selectedDocImage.style.maxWidth = '100%';
+                    selectedDocImage.style.height = 'auto';
+                    updateDocumentMetrics();
+                    handleSave(true);
+                    // Force re-render
+                    setSelectedDocImage(selectedDocImage);
+                  }}
+                  className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                    isCurrent ? 'bg-blue-600 text-white' : 'bg-[#1C1C1F] text-gray-400 hover:text-white border border-[#2E2E32]'
+                  }`}
+                >
+                  {sz.label}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="w-px h-6 bg-[#2F2F33]" />
+
+          {/* Wrapping / Floating controls */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] text-gray-400 uppercase font-semibold font-mono">Layout:</span>
+            {[
+              { align: 'left', label: 'Flutuar à Esquerda' },
+              { align: 'center', label: 'Centralizar' },
+              { align: 'right', label: 'Flutuar à Direita' },
+            ].map((pos) => {
+              const isCurrent = pos.align === 'center' 
+                ? (selectedDocImage.style.float === 'none' || !selectedDocImage.style.float)
+                : selectedDocImage.style.float === pos.align;
+              return (
+                <button
+                  key={pos.align}
+                  onClick={() => {
+                    if (pos.align === 'left') {
+                      selectedDocImage.style.float = 'left';
+                      selectedDocImage.style.margin = '12px 16px 12px 0';
+                      selectedDocImage.style.display = 'inline';
+                    } else if (pos.align === 'right') {
+                      selectedDocImage.style.float = 'right';
+                      selectedDocImage.style.margin = '12px 0 12px 16px';
+                      selectedDocImage.style.display = 'inline';
+                    } else {
+                      selectedDocImage.style.float = 'none';
+                      selectedDocImage.style.margin = '16px auto';
+                      selectedDocImage.style.display = 'block';
+                    }
+                    updateDocumentMetrics();
+                    handleSave(true);
+                    setSelectedDocImage(selectedDocImage); // force update
+                  }}
+                  className={`px-2 py-1 text-[10px] font-bold rounded-lg transition-all cursor-pointer ${
+                    isCurrent ? 'bg-blue-600 text-white' : 'bg-[#1C1C1F] text-gray-400 hover:text-white border border-[#2E2E32]'
+                  }`}
+                  title={pos.label}
+                >
+                  {pos.align === 'left' ? '← Flutuar' : pos.align === 'right' ? 'Flutuar →' : 'Centro'}
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="w-px h-6 bg-[#2F2F33]" />
+
+          {/* Action buttons */}
+          <div className="flex items-center gap-1.5">
+            <button
+              onClick={() => {
+                setEditingDocImage(selectedDocImage);
+                setSelectedDocImage(null);
+              }}
+              className="px-2.5 py-1 bg-stone-700 hover:bg-stone-600 text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+              title="Filtros, Recorte e Ajustes"
+            >
+              Filtros / Recorte
+            </button>
+            <button
+              onClick={() => {
+                if (confirm('Deseja realmente remover esta imagem do documento?')) {
+                  selectedDocImage.remove();
+                  setSelectedDocImage(null);
+                  updateDocumentMetrics();
+                  handleSave(true);
+                }
+              }}
+              className="p-1.5 bg-red-950/40 text-red-400 border border-red-500/20 hover:bg-red-500 hover:text-white rounded-lg transition cursor-pointer"
+              title="Remover Imagem"
+            >
+              <Trash2 className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={() => setSelectedDocImage(null)}
+              className="px-2 py-1 bg-[#1C1C1F] border border-[#2D2D30] text-gray-400 hover:text-white text-[10px] font-bold rounded-lg transition cursor-pointer"
+            >
+              Fechar
+            </button>
+          </div>
+        </div>
       )}
     </div>
   );
