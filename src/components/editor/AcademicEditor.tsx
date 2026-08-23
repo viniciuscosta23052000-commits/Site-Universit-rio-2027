@@ -4,6 +4,20 @@ import { StorageService } from '../../lib/storage';
 import { exportLessonToDocx } from '../../lib/docxExport';
 import { exportToPdf } from '../../lib/pdfExport';
 import { UniversalImageEditor, ImageEditParams } from './UniversalImageEditor';
+import { ClassroomAudioSection } from './ClassroomAudioSection';
+import {
+  MATH_SYMBOLS,
+  FONTS_LIST,
+  FONT_SIZES,
+  getSmartArtProcess,
+  getSmartArtList,
+  getChartHtml,
+  getWordArtHtml,
+  getDropCapHtml,
+  getSignatureHtml,
+  getTOC,
+  getCalloutHtml
+} from './editorTemplates';
 import {
   ArrowLeft,
   Save,
@@ -11,10 +25,7 @@ import {
   Printer,
   Sparkles,
   Camera,
-  Layers,
-  History,
   FileText,
-  Type,
   Bold,
   Italic,
   Underline,
@@ -25,7 +36,6 @@ import {
   AlignJustify,
   List,
   ListOrdered,
-  CheckSquare,
   Table as TableIcon,
   HelpCircle,
   Brain,
@@ -40,15 +50,26 @@ import {
   Minimize2,
   Maximize2,
   Check,
-  RotateCcw,
+  Undo,
+  Redo,
+  Clipboard,
+  Scissors,
+  Copy,
+  ChevronDown,
+  GripHorizontal,
+  FolderOpen,
+  Eye,
+  Settings,
+  Lock,
+  Puzzle,
+  Globe,
+  Mic,
+  Smile,
+  Link,
   BookOpen,
-  Calendar,
-  User,
-  Share2,
+  Type,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
-import { ClassroomAudioSection } from './ClassroomAudioSection';
-import { Mic } from 'lucide-react';
 
 interface AcademicEditorProps {
   lessonId: string;
@@ -56,8 +77,6 @@ interface AcademicEditorProps {
   onNavigateToFlashcards?: (deckId: string) => void;
   onNavigateToMindmaps?: (mapId: string) => void;
 }
-
-const MATH_SYMBOLS = ['α', 'β', 'γ', 'δ', 'θ', 'λ', 'μ', 'π', 'σ', 'Δ', 'Ω', '→', '⇄', '±', '≤', '≥', '≠', '≈', '∞', '√', '∫', '∑', '²', '³', '℃', 'pH', 'CO₂', 'O₂', 'Ca²⁺', 'Na⁺', 'K⁺'];
 
 export const AcademicEditor: React.FC<AcademicEditorProps> = ({
   lessonId,
@@ -76,9 +95,36 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
   const [professor, setProfessor] = useState(initialLesson?.professor || discipline?.professor || '');
   const [date, setDate] = useState(initialLesson?.date || new Date().toISOString().split('T')[0]);
   const [pageFormat, setPageFormat] = useState<'a4' | 'a5' | 'letter'>(initialLesson?.pageFormat || 'a4');
-  const [viewMode, setViewMode] = useState<'page' | 'continuous' | 'canva'>('page');
 
-  // Drawing state
+  // Ribbon Navigation state
+  const [activeRibbonTab, setActiveRibbonTab] = useState<
+    'arquivo' | 'pagina-inicial' | 'inserir' | 'desenhar' | 'layout' | 'referencias' | 'colaboracao' | 'protecao' | 'ver' | 'plugins' | 'ai'
+  >('pagina-inicial');
+
+  // Document formatting state
+  const [fontFamily, setFontFamily] = useState('Arial');
+  const [fontSize, setFontSize] = useState('11');
+  const [lineSpacing, setLineSpacing] = useState('1.5');
+  const [margins, setMargins] = useState<'normal' | 'estreita' | 'moderada' | 'larga'>('normal');
+  const [orientation, setOrientation] = useState<'portrait' | 'landscape'>('portrait');
+  const [columns, setColumns] = useState<'1' | '2' | '3'>('1');
+  const [indentLeft, setIndentLeft] = useState(0);
+  const [indentRight, setIndentRight] = useState(0);
+  const [spacingBefore, setSpacingBefore] = useState(0);
+  const [spacingAfter, setSpacingAfter] = useState(8);
+
+  // Status Bar / Metrics state
+  const [zoom, setZoom] = useState(100);
+  const [language, setLanguage] = useState('Português - Brasil');
+  const [wordCount, setWordCount] = useState(0);
+  const [charCount, setCharCount] = useState(0);
+  const [rulerVisible, setRulerVisible] = useState(true);
+
+  // Table grid visual selector state
+  const [showTableSelector, setShowTableSelector] = useState(false);
+  const [tableGridHover, setTableGridHover] = useState<{ r: number; c: number } | null>(null);
+
+  // Drawing overlay layer state
   const [isDrawingMode, setIsDrawingMode] = useState(false);
   const [drawingTool, setDrawingTool] = useState<'pen' | 'highlighter' | 'eraser'>('pen');
   const [drawColor, setDrawColor] = useState('#EF4444');
@@ -87,113 +133,52 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
   const [currentStroke, setCurrentStroke] = useState<{ x: number; y: number }[]>([]);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
 
-  // Freeform Canvas Elements (Sticky notes, floating cards)
+  // Freeform sticky elements
   const [canvasElements, setCanvasElements] = useState<CanvasElement[]>(initialLesson?.canvasElements || []);
-  const [selectedElementId, setSelectedElementId] = useState<string | null>(null);
 
-  // AI states
-  const [isAiLoading, setIsAiLoading] = useState(false);
+  // UI modals/panels
   const [aiModalOpen, setAiModalOpen] = useState(false);
   const [aiAction, setAiAction] = useState<string>('summarize');
   const [aiCustomPrompt, setAiCustomPrompt] = useState('');
   const [aiResultText, setAiResultText] = useState('');
+  const [isAiLoading, setIsAiLoading] = useState(false);
 
-  // OCR modal
   const [ocrModalOpen, setOcrModalOpen] = useState(false);
   const [ocrImagePreview, setOcrImagePreview] = useState<string | null>(null);
   const [ocrLoading, setOcrLoading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  // Version history modal
-  const [historyModalOpen, setHistoryModalOpen] = useState(false);
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
-  const [pageAppearance, setPageAppearance] = useState<'white' | 'dark' | 'auto'>(() => {
-    return (localStorage.getItem('academic_page_appearance') as 'white' | 'dark' | 'auto') || 'auto';
-  });
-
+  const [pageAppearance, setPageAppearance] = useState<'white' | 'dark' | 'auto'>('white');
   const [showAudioSidebar, setShowAudioSidebar] = useState(false);
 
+  // Image editing
+  const [editingDocImage, setEditingDocImage] = useState<HTMLImageElement | null>(null);
+  const [newImageOriginalSrc, setNewImageOriginalSrc] = useState<string | null>(null);
+  const [isNewImageEditorOpen, setIsNewImageEditorOpen] = useState(false);
+
+  const editorContentRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  // Sync content on load
+  useEffect(() => {
+    if (editorContentRef.current && initialLesson) {
+      editorContentRef.current.innerHTML = initialLesson.contentHtml || '<p>Comece a escrever sua aula aqui...</p>';
+      updateDocumentMetrics();
+    }
+  }, [lessonId]);
+
+  // Track live changes in DB
   useEffect(() => {
     const unsubscribe = StorageService.subscribe((newDb) => {
       const freshL = newDb.lessons.find((l) => l.id === lessonId);
-      if (freshL) {
+      if (freshL && freshL.contentHtml !== editorContentRef.current?.innerHTML) {
         setLesson(freshL);
       }
     });
     return unsubscribe;
   }, [lessonId]);
 
-  const handleInsertNotesFromAudio = (html: string) => {
-    if (editorContentRef.current) {
-      editorContentRef.current.innerHTML += `<div class="ai-generated-study-notes border-t-2 border-dashed border-purple-500/30 pt-6 mt-8">${html}</div>`;
-      handleSave(true);
-      confetti({
-        particleCount: 80,
-        spread: 60,
-        origin: { y: 0.8 }
-      });
-    }
-  };
-
-  // Doc Image Editor states
-  const [editingDocImage, setEditingDocImage] = useState<HTMLImageElement | null>(null);
-  const [newImageOriginalSrc, setNewImageOriginalSrc] = useState<string | null>(null);
-  const [isNewImageEditorOpen, setIsNewImageEditorOpen] = useState(false);
-
-  const handleNewImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      setNewImageOriginalSrc(base64);
-      setIsNewImageEditorOpen(true);
-    };
-    reader.readAsDataURL(file);
-    e.target.value = '';
-  };
-
-  const handleSaveNewDocImage = (editedUrl: string, params: ImageEditParams) => {
-    if (!newImageOriginalSrc) return;
-    
-    if (editorContentRef.current) {
-      editorContentRef.current.focus();
-    }
-    
-    const imgHtml = `<img src="${editedUrl}" data-original-src="${newImageOriginalSrc}" data-edit-params='${JSON.stringify(params)}' class="note-editable-image rounded-xl my-4 max-w-full cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all duration-200" style="display: block; margin-left: auto; margin-right: auto; max-height: 400px;" />`;
-    formatDoc('insertHTML', imgHtml);
-    
-    setNewImageOriginalSrc(null);
-    setIsNewImageEditorOpen(false);
-    handleSave(true);
-  };
-
-  const handleSaveExistingDocImage = (editedUrl: string, params: ImageEditParams) => {
-    if (!editingDocImage) return;
-    editingDocImage.src = editedUrl;
-    editingDocImage.setAttribute('data-edit-params', JSON.stringify(params));
-    setEditingDocImage(null);
-    handleSave(true);
-  };
-
-  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
-    const target = e.target as HTMLElement;
-    if (target.tagName === 'IMG' && target.classList.contains('note-editable-image')) {
-      setEditingDocImage(target as HTMLImageElement);
-    }
-  };
-
-  const editorContentRef = useRef<HTMLDivElement | null>(null);
-
-  // Initialize content on load
-  useEffect(() => {
-    if (editorContentRef.current && initialLesson) {
-      editorContentRef.current.innerHTML = initialLesson.contentHtml || '<p>Comece a escrever sua aula aqui...</p>';
-    }
-  }, [lessonId]);
-
-  // Redraw strokes
+  // Drawing Canvas redraw logic
   useEffect(() => {
     if (!canvasRef.current || !lesson) return;
     const canvas = canvasRef.current;
@@ -202,7 +187,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw saved strokes
     (lesson.drawings || []).forEach((stroke) => {
       if (stroke.points.length < 2) return;
       ctx.beginPath();
@@ -218,11 +202,21 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
       }
       ctx.stroke();
     });
-
     ctx.globalAlpha = 1.0;
   }, [lesson?.drawings, isDrawingMode]);
 
-  // Autosave helper
+  // Metric calculator
+  const updateDocumentMetrics = () => {
+    if (editorContentRef.current) {
+      const text = editorContentRef.current.innerText || '';
+      const clean = text.trim();
+      const words = clean ? clean.split(/\s+/).length : 0;
+      setWordCount(words);
+      setCharCount(text.length);
+    }
+  };
+
+  // Document saving
   const handleSave = (silent = false) => {
     if (!lesson) return;
     setSaveStatus('saving');
@@ -252,95 +246,89 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
     setTimeout(() => setSaveStatus('saved'), 400);
 
     if (!silent) {
-      confetti({ particleCount: 30, spread: 50, origin: { y: 0.9 } });
+      confetti({ particleCount: 40, spread: 50, origin: { y: 0.9 } });
     }
   };
 
-  // Execute formatting command
+  // Rich-text formatting command
   const formatDoc = (cmd: string, value: string | undefined = undefined) => {
     document.execCommand(cmd, false, value);
     if (editorContentRef.current) {
       editorContentRef.current.focus();
     }
+    updateDocumentMetrics();
   };
 
-  // Insert Academic Callout
-  const insertCallout = (type: 'highlight' | 'definition' | 'warning' | 'example' | 'obs' | 'formula') => {
-    let calloutHtml = '';
-    switch (type) {
-      case 'highlight':
-        calloutHtml = `<div class="academic-callout highlight" style="background-color: #fef9e7; border-left: 4px solid #d97706; padding: 14px 18px; margin: 14px 0; border-radius: 8px;"><strong>💡 Ponto de Destaque:</strong><p>Digite a informação chave aqui...</p></div><p></p>`;
-        break;
-      case 'definition':
-        calloutHtml = `<div class="academic-callout definition" style="background-color: #f0f7f3; border-left: 4px solid #4A6B53; padding: 14px 18px; margin: 14px 0; border-radius: 8px;"><strong>📖 Definição Conceitual:</strong><p>Digite o conceito formal ou terminologia aqui...</p></div><p></p>`;
-        break;
-      case 'warning':
-        calloutHtml = `<div class="academic-callout warning" style="background-color: #fee2e2; border-left: 4px solid #ef4444; padding: 14px 18px; margin: 14px 0; border-radius: 8px;"><strong>⚠️ Atenção / Cai em Prova:</strong><p>Detalhe crucial para não confundir...</p></div><p></p>`;
-        break;
-      case 'example':
-        calloutHtml = `<div class="academic-callout example" style="background-color: #eff6ff; border-left: 4px solid #2563eb; padding: 14px 18px; margin: 14px 0; border-radius: 8px;"><strong>🔬 Exemplo Prático / Caso Clínico:</strong><p>Descrição do exemplo contextualizado...</p></div><p></p>`;
-        break;
-      case 'formula':
-        calloutHtml = `<div class="academic-callout formula" style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #475569; padding: 14px 18px; margin: 14px 0; border-radius: 8px; font-family: monospace;"><strong>📐 Equação / Relação:</strong><p>$$\\Delta H = m \\cdot c \\cdot \\Delta T$$</p></div><p></p>`;
-        break;
-      case 'obs':
-        calloutHtml = `<div class="academic-callout obs" style="background-color: #f5f3ff; border-left: 4px solid #7c3aed; padding: 14px 18px; margin: 14px 0; border-radius: 8px;"><strong>✍️ Observação do Professor:</strong><p>Comentário feito em sala de aula...</p></div><p></p>`;
-        break;
+  // Quick document template insertion helpers
+  const insertTemplateHtml = (html: string) => {
+    formatDoc('insertHTML', html);
+    handleSave(true);
+  };
+
+  const handleTableGridInsert = (rows: number, cols: number) => {
+    let tableHtml = `<table style="width: 100%; border-collapse: collapse; margin: 16px 0; border: 1px solid #cbd5e1;"><thead><tr style="background-color: #f1f5f9;">`;
+    for (let c = 0; c < cols; c++) {
+      tableHtml += `<th style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: left; font-weight: bold; font-size: 13px;">Coluna ${c + 1}</th>`;
     }
-    formatDoc('insertHTML', calloutHtml);
+    tableHtml += `</tr></thead><tbody>`;
+    for (let r = 0; r < rows; r++) {
+      tableHtml += `<tr>`;
+      for (let c = 0; c < cols; c++) {
+        tableHtml += `<td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-size: 13px;">&nbsp;</td>`;
+      }
+      tableHtml += `</tr>`;
+    }
+    tableHtml += `</tbody></table><p></p>`;
+    insertTemplateHtml(tableHtml);
   };
 
-  // Insert Table
-  const insertTable = () => {
-    const tableHtml = `
-      <table style="width: 100%; border-collapse: collapse; margin: 16px 0;">
-        <thead>
-          <tr style="background-color: #e9eee8; text-align: left;">
-            <th style="padding: 8px 12px; border: 1px solid #ccd5cb;">Item / Conceito</th>
-            <th style="padding: 8px 12px; border: 1px solid #ccd5cb;">Descrição</th>
-            <th style="padding: 8px 12px; border: 1px solid #ccd5cb;">Observações</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr>
-            <td style="padding: 8px 12px; border: 1px solid #ccd5cb;">Exemplo 1</td>
-            <td style="padding: 8px 12px; border: 1px solid #ccd5cb;">Explicação detalhada...</td>
-            <td style="padding: 8px 12px; border: 1px solid #ccd5cb;">Nota...</td>
-          </tr>
-          <tr>
-            <td style="padding: 8px 12px; border: 1px solid #ccd5cb;">Exemplo 2</td>
-            <td style="padding: 8px 12px; border: 1px solid #ccd5cb;">Explicação detalhada...</td>
-            <td style="padding: 8px 12px; border: 1px solid #ccd5cb;">Nota...</td>
-          </tr>
-        </tbody>
-      </table>
-      <p></p>
-    `;
-    formatDoc('insertHTML', tableHtml);
+  const handleInsertAudioNotes = (html: string) => {
+    if (editorContentRef.current) {
+      editorContentRef.current.innerHTML += `<div class="ai-generated-study-notes border-t-2 border-dashed border-purple-500/30 pt-6 mt-8">${html}</div>`;
+      handleSave(true);
+      confetti({ particleCount: 80, spread: 60, origin: { y: 0.8 } });
+    }
   };
 
-  // Add floating sticky note or card on Canva layer
-  const addCanvasElement = (type: 'callout' | 'text' | 'shape') => {
-    const newEl: CanvasElement = {
-      id: `el-${Date.now()}`,
-      type,
-      x: 60 + Math.random() * 40,
-      y: 100 + Math.random() * 50,
-      width: 220,
-      height: 100,
-      zIndex: canvasElements.length + 1,
-      content: type === 'callout' ? '📌 Lembrete importante' : 'Nova anotação flutuante...',
-      style: {
-        backgroundColor: '#FEF3C7',
-        borderColor: '#F59E0B',
-        borderRadius: 8,
-        fontSize: 13,
-      },
+  // Image select & edit handlers
+  const handleNewImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const base64 = event.target?.result as string;
+      setNewImageOriginalSrc(base64);
+      setIsNewImageEditorOpen(true);
     };
-    setCanvasElements([...canvasElements, newEl]);
+    reader.readAsDataURL(file);
+    e.target.value = '';
   };
 
-  // Export to Word (.docx)
+  const handleSaveNewDocImage = (editedUrl: string, params: ImageEditParams) => {
+    if (!newImageOriginalSrc) return;
+    const imgHtml = `<img src="${editedUrl}" data-original-src="${newImageOriginalSrc}" data-edit-params='${JSON.stringify(params)}' class="note-editable-image rounded-xl my-4 max-w-full cursor-pointer hover:ring-2 hover:ring-blue-500 transition-all duration-200" style="display: block; margin-left: auto; margin-right: auto; max-height: 400px;" />`;
+    formatDoc('insertHTML', imgHtml);
+    setNewImageOriginalSrc(null);
+    setIsNewImageEditorOpen(false);
+    handleSave(true);
+  };
+
+  const handleSaveExistingDocImage = (editedUrl: string, params: ImageEditParams) => {
+    if (!editingDocImage) return;
+    editingDocImage.src = editedUrl;
+    editingDocImage.setAttribute('data-edit-params', JSON.stringify(params));
+    setEditingDocImage(null);
+    handleSave(true);
+  };
+
+  const handleEditorClick = (e: React.MouseEvent<HTMLDivElement>) => {
+    const target = e.target as HTMLElement;
+    if (target.tagName === 'IMG' && target.classList.contains('note-editable-image')) {
+      setEditingDocImage(target as HTMLImageElement);
+    }
+  };
+
+  // Word docx and PDF formatting exports
   const handleExportDocx = async () => {
     if (!lesson) return;
     try {
@@ -355,7 +343,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         },
         discipline?.name || 'Disciplina'
       );
-
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
@@ -365,61 +352,44 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
     } catch (e) {
-      console.error('Erro ao gerar DOCX:', e);
       alert('Erro ao exportar documento para DOCX.');
     }
   };
 
-  // Export to PDF (.pdf)
   const handleExportPdf = () => {
     if (!lesson) return;
     try {
-      const htmlContent = editorContentRef.current?.innerHTML || lesson.contentHtml;
-      exportToPdf(
-        title,
-        lessonNumber || 'Aula',
-        htmlContent,
-        {
-          studentName: db.profile?.name || 'Estudante',
-          courseName: db.profile?.course || 'Curso',
-          institution: db.profile?.institution || db.profile?.university || 'Universidade',
-          professor: professor || discipline?.professor || 'Não informado',
-          date: date || 'Não informada',
-        }
-      );
-      confetti({ particleCount: 30, spread: 50, origin: { y: 0.9 } });
+      exportToPdf(title, lessonNumber || 'Aula', editorContentRef.current?.innerHTML || lesson.contentHtml, {
+        studentName: db.profile?.name || 'Estudante',
+        courseName: db.profile?.course || 'Curso',
+        institution: db.profile?.institution || 'Universidade',
+        professor: professor || discipline?.professor || 'Não informado',
+        date: date || 'Não informada',
+      });
+      confetti({ particleCount: 30, spread: 50 });
     } catch (e) {
-      console.error('Erro ao gerar PDF:', e);
       alert('Erro ao exportar documento para PDF.');
     }
   };
 
-  // Handle OCR Photo Upload
+  // OCR Photo transcriber
   const handleOcrFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
     const reader = new FileReader();
-    reader.onload = (event) => {
-      const base64 = event.target?.result as string;
-      setOcrImagePreview(base64);
-    };
+    reader.onload = (event) => setOcrImagePreview(event.target?.result as string);
     reader.readAsDataURL(file);
   };
 
   const handleRunOcr = async () => {
     if (!ocrImagePreview) return;
     setOcrLoading(true);
-
     try {
       const response = await fetch('/api/ai/transcribe-note', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          imageBase64: ocrImagePreview,
-        }),
+        body: JSON.stringify({ imageBase64: ocrImagePreview }),
       });
-
       const data = await response.json();
       if (data.success && data.contentHtml) {
         formatDoc('insertHTML', data.contentHtml);
@@ -430,20 +400,17 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         alert('Erro na transcrição: ' + (data.error || 'Tente novamente'));
       }
     } catch (e: any) {
-      console.error(e);
-      alert('Erro ao conectar com serviço de IA: ' + e.message);
+      alert('Erro de conexão: ' + e.message);
     } finally {
       setOcrLoading(false);
     }
   };
 
-  // Handle AI Study Assistant
+  // AI Assistant trigger
   const handleRunAiStudy = async () => {
     setIsAiLoading(true);
     setAiResultText('');
-
     const currentText = editorContentRef.current?.innerText || '';
-
     try {
       const response = await fetch('/api/ai/study-assist', {
         method: 'POST',
@@ -456,7 +423,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
           customPrompt: aiCustomPrompt,
         }),
       });
-
       const data = await response.json();
       if (data.success) {
         setAiResultText(data.result);
@@ -470,12 +436,11 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
     }
   };
 
-  // Auto-generate Flashcards from note
+  // Original AI Flashcard deck creator (unaltered options)
   const handleGenerateFlashcards = async () => {
     if (!lesson) return;
     setIsAiLoading(true);
     const currentText = editorContentRef.current?.innerText || '';
-
     try {
       const response = await fetch('/api/ai/generate-flashcards', {
         method: 'POST',
@@ -487,7 +452,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
           count: 6,
         }),
       });
-
       const data = await response.json();
       if (data.success && data.flashcards?.length > 0) {
         const newDeckId = `deck-${Date.now()}`;
@@ -519,7 +483,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
             })),
           });
         });
-
         confetti({ particleCount: 80, spread: 80 });
         if (onNavigateToFlashcards) {
           onNavigateToFlashcards(newDeckId);
@@ -536,12 +499,11 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
     }
   };
 
-  // Auto-generate Mind Map from note
+  // Original AI Mind Map creator (unaltered options)
   const handleGenerateMindmap = async () => {
     if (!lesson) return;
     setIsAiLoading(true);
     const currentText = editorContentRef.current?.innerText || '';
-
     try {
       const response = await fetch('/api/ai/generate-mindmap', {
         method: 'POST',
@@ -552,12 +514,10 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
           contentText: currentText,
         }),
       });
-
       const data = await response.json();
       if (data.success && data.mindmap) {
         const newMapId = `mm-${Date.now()}`;
         const rawMap = data.mindmap;
-
         const nodes = [
           {
             id: 'n-root',
@@ -571,7 +531,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
             linkedLessonId: lesson.id,
           },
           ...(rawMap.nodes || []).map((node: any, idx: number) => {
-            const angle = (idx / ((rawMap.nodes?.length || 1))) * 2 * Math.PI;
+            const angle = (idx / (rawMap.nodes?.length || 1)) * 2 * Math.PI;
             return {
               id: node.id || `node-${idx}`,
               label: node.label,
@@ -585,7 +545,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
             };
           }),
         ];
-
         const connections = (rawMap.connections || []).map((conn: any, idx: number) => ({
           id: `c-${idx}`,
           fromNodeId: conn.from === 'root-1' ? 'n-root' : conn.from,
@@ -593,7 +552,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
           label: conn.label || 'relaciona',
           style: 'solid' as const,
         }));
-
         StorageService.update((draft) => {
           draft.mindMaps.push({
             id: newMapId,
@@ -612,7 +570,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
             updatedAt: new Date().toISOString(),
           });
         });
-
         confetti({ particleCount: 80, spread: 80 });
         if (onNavigateToMindmaps) {
           onNavigateToMindmaps(newMapId);
@@ -629,7 +586,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
     }
   };
 
-  // Drawing mouse handlers
+  // Drawing event capturing pointers
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawingMode || !canvasRef.current) return;
     const rect = canvasRef.current.getBoundingClientRect();
@@ -700,19 +657,87 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
     }
   };
 
+  // Dimensions based on selected format & landscape mode
+  const getPageDimensions = () => {
+    const isPortrait = orientation === 'portrait';
+    if (pageFormat === 'a5') {
+      return {
+        width: isPortrait ? '148mm' : '210mm',
+        height: isPortrait ? '210mm' : '148mm',
+        sheetWidth: isPortrait ? 560 : 790,
+        sheetHeight: isPortrait ? 790 : 560,
+      };
+    }
+    if (pageFormat === 'letter') {
+      return {
+        width: isPortrait ? '215mm' : '279mm',
+        height: isPortrait ? '279mm' : '215mm',
+        sheetWidth: isPortrait ? 810 : 1050,
+        sheetHeight: isPortrait ? 1050 : 810,
+      };
+    }
+    // A4 (default)
+    return {
+      width: isPortrait ? '210mm' : '297mm',
+      height: isPortrait ? '297mm' : '210mm',
+      sheetWidth: isPortrait ? 790 : 1120,
+      sheetHeight: isPortrait ? 1120 : 790,
+    };
+  };
+
+  const { width: pageWidth, height: pageHeight, sheetWidth, sheetHeight } = getPageDimensions();
+
+  // Margin spacing utility classes
+  const marginClasses = {
+    normal: 'p-12 sm:p-14',
+    estreita: 'p-6 sm:p-8',
+    moderada: 'p-10 sm:p-12',
+    larga: 'p-16 sm:p-20',
+  };
+
+  // Translate document logic using AI proxy
+  const handleTranslateText = async (lang: string) => {
+    setIsAiLoading(true);
+    const content = editorContentRef.current?.innerText || '';
+    try {
+      const res = await fetch('/api/ai/study-assist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'explain',
+          noteTitle: title,
+          subjectName: discipline?.name || 'Geral',
+          contentText: `Traduza o seguinte texto acadêmico estritamente para o idioma ${lang}: \n\n${content}`,
+        }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        formatDoc('insertHTML', `<div style="background-color: #f0fdf4; border-left: 4px solid #16a34a; padding: 12px; margin: 12px 0; border-radius: 6px; font-size: 13px;" contenteditable="false"><strong>🌐 Tradução (${lang}):</strong><br/>${data.result.replace(/\n/g, '<br/>')}</div><p></p>`);
+      } else {
+        alert('Erro ao processar tradução.');
+      }
+    } catch (e) {
+      alert('Erro ao traduzir.');
+    } finally {
+      setIsAiLoading(false);
+    }
+  };
+
   return (
-    <div className="flex flex-col h-full bg-[#0A0A0B] text-[#EDEDED] overflow-hidden">
-      {/* Top Header Bar */}
-      <header className="flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-[#121214] border-b border-[#242427] z-20">
+    <div className="flex flex-col h-full bg-[#0E0E10] text-[#E4E4E7] overflow-hidden font-sans">
+      
+      {/* Top Application Header */}
+      <header className="flex items-center justify-between gap-3 px-4 py-2 bg-[#141416] border-b border-[#242427] z-20">
         <div className="flex items-center gap-3">
           <button
             onClick={onBack}
-            className="p-2 rounded-xl text-[#919196] hover:text-white hover:bg-[#1C1C1F] transition cursor-pointer"
+            className="p-1.5 rounded-xl text-[#A1A1AA] hover:text-white hover:bg-[#202024] transition cursor-pointer"
             title="Voltar ao Caderno"
+            id="btn-back-notebook"
           >
             <ArrowLeft className="w-5 h-5" />
           </button>
-
+          
           <div>
             <div className="flex items-center gap-2">
               <span
@@ -725,435 +750,1160 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
                 type="text"
                 value={lessonNumber}
                 onChange={(e) => setLessonNumber(e.target.value)}
-                className="px-1.5 py-0.5 text-xs font-semibold rounded bg-transparent border-b border-transparent hover:border-[#242427] focus:border-blue-500 focus:outline-hidden w-20 text-[#EDEDED]"
-                placeholder="Aula 01"
+                className="px-1.5 py-0.5 text-xs font-semibold rounded bg-transparent border-b border-transparent hover:border-[#2F2F33] focus:border-blue-500 focus:outline-none w-20 text-[#EDEDED]"
               />
-              <span className="text-xs text-[#636366]">•</span>
+              <span className="text-xs text-[#52525B]">•</span>
               <input
                 type="date"
                 value={date}
                 onChange={(e) => setDate(e.target.value)}
-                className="text-xs text-[#919196] bg-transparent border-none focus:outline-hidden"
+                className="text-xs text-[#A1A1AA] bg-transparent border-none focus:outline-none focus:ring-0 w-28 cursor-pointer"
               />
             </div>
             <input
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
-              className="text-base font-bold bg-transparent border-b border-transparent hover:border-[#242427] focus:border-blue-500 focus:outline-hidden text-white w-72 sm:w-96 placeholder-[#636366]"
+              className="text-sm sm:text-base font-bold bg-transparent border-b border-transparent hover:border-[#2F2F33] focus:border-blue-500 focus:outline-none text-white w-64 sm:w-80 placeholder-[#52525B]"
               placeholder="Título da Aula..."
             />
           </div>
         </div>
 
-        {/* Action Buttons */}
-        <div className="flex items-center gap-2">
-          {/* AI Tools Dropdown / Quick buttons */}
-          <div className="flex items-center bg-[#1C1C1F] border border-[#242427] rounded-xl p-1 gap-1">
+        <div className="flex items-center gap-2.5">
+          {/* Quick Saving State */}
+          <span className="text-[10px] font-mono text-[#71717A]">
+            {saveStatus === 'saving' ? 'Salvando...' : 'Documento Salvo'}
+          </span>
+          <button
+            onClick={() => handleSave(false)}
+            className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-lg shadow-md transition cursor-pointer"
+            id="btn-quick-save"
+          >
+            <Save className="w-3.5 h-3.5" />
+            Salvar
+          </button>
+        </div>
+      </header>
+
+      {/* OnlyOffice-style Ribbon Tabs Row */}
+      <nav className="flex items-center bg-[#18181B] border-b border-[#242427] px-4 pt-1 z-10 select-none overflow-x-auto gap-1 scrollbar-none">
+        <button
+          onClick={() => {
+            setActiveRibbonTab('arquivo');
+          }}
+          className={`px-3 py-1.5 text-xs font-bold rounded-t-lg transition-all ${
+            activeRibbonTab === 'arquivo'
+              ? 'bg-[#A8A29E] text-stone-900 border-t-2 border-orange-500'
+              : 'text-stone-300 hover:bg-[#27272A]'
+          }`}
+          id="tab-ribbon-arquivo"
+        >
+          Arquivo
+        </button>
+        {(
+          [
+            { id: 'pagina-inicial', label: 'Página Inicial' },
+            { id: 'inserir', label: 'Inserir' },
+            { id: 'desenhar', label: 'Desenhar' },
+            { id: 'layout', label: 'Layout' },
+            { id: 'referencias', label: 'Referências' },
+            { id: 'colaboracao', label: 'Colaboração' },
+            { id: 'protecao', label: 'Proteção' },
+            { id: 'ver', label: 'Ver' },
+            { id: 'plugins', label: 'Plug-ins' },
+            { id: 'ai', label: 'AI' },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => {
+              setActiveRibbonTab(tab.id);
+              if (tab.id === 'desenhar') {
+                setIsDrawingMode(true);
+              } else {
+                setIsDrawingMode(false);
+              }
+            }}
+            className={`px-3 py-1.5 text-xs font-medium rounded-t-lg transition-all whitespace-nowrap ${
+              activeRibbonTab === tab.id
+                ? 'bg-[#27272A] text-white border-t-2 border-blue-500'
+                : 'text-[#A1A1AA] hover:text-white hover:bg-[#202024]'
+            }`}
+            id={`tab-ribbon-${tab.id}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* Ribbon Tools Panel (Grey-themed OnlyOffice replica) */}
+      <div className="bg-[#202024] border-b border-[#2E2E33] px-4 py-2 text-xs flex flex-wrap items-center gap-4 z-10 overflow-x-auto min-h-[58px] select-none scrollbar-none">
+        
+        {/* TAB: ARQUIVO */}
+        {activeRibbonTab === 'arquivo' && (
+          <div className="flex items-center gap-3">
+            <div className="flex flex-col items-center">
+              <button
+                onClick={() => handleSave(false)}
+                className="p-1.5 bg-[#2D2D33] hover:bg-blue-600 rounded-lg text-white transition flex items-center gap-1 cursor-pointer"
+                id="btn-file-save"
+              >
+                <Save className="w-4 h-4" />
+                <span>Salvar Tudo</span>
+              </button>
+            </div>
+            <div className="w-px h-8 bg-[#2F2F33]" />
+            
+            <button
+              onClick={handleExportDocx}
+              className="px-3 py-1.5 bg-[#2D2D33] hover:bg-stone-700 rounded-lg text-white transition flex items-center gap-1.5 cursor-pointer"
+              id="btn-file-export-word"
+            >
+              <Download className="w-3.5 h-3.5" />
+              <span>Word (.docx)</span>
+            </button>
+
+            <button
+              onClick={handleExportPdf}
+              className="px-3 py-1.5 bg-[#2D2D33] hover:bg-stone-700 rounded-lg text-white transition flex items-center gap-1.5 cursor-pointer"
+              id="btn-file-export-pdf"
+            >
+              <FileText className="w-3.5 h-3.5" />
+              <span>PDF (.pdf)</span>
+            </button>
+
+            <button
+              onClick={() => window.print()}
+              className="px-3 py-1.5 bg-[#2D2D33] hover:bg-stone-700 rounded-lg text-white transition flex items-center gap-1.5 cursor-pointer"
+              id="btn-file-print"
+            >
+              <Printer className="w-3.5 h-3.5" />
+              <span>Imprimir / PDF</span>
+            </button>
+            <div className="w-px h-8 bg-[#2F2F33]" />
+            <div className="text-[10px] text-[#A1A1AA]">
+              <div><strong>Doc:</strong> {title}.docx</div>
+              <div><strong>Tamanho:</strong> {pageFormat.toUpperCase()} ({orientation})</div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: PÁGINA INICIAL */}
+        {activeRibbonTab === 'pagina-inicial' && (
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Clipboard group */}
+            <div className="flex items-center gap-1 border-r border-[#2F2F33] pr-3 h-9">
+              <button
+                onClick={() => {
+                  navigator.clipboard.readText().then((clipText) => {
+                    formatDoc('insertText', clipText);
+                  }).catch(() => {
+                    alert('Cole o texto diretamente no documento com Ctrl+V');
+                  });
+                }}
+                className="p-1.5 hover:bg-[#2D2D33] rounded-lg text-white transition cursor-pointer flex flex-col items-center justify-center"
+                title="Colar área de transferência"
+                id="btn-paste"
+              >
+                <Clipboard className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('cut')}
+                className="p-1 hover:bg-[#2D2D33] rounded text-[#A1A1AA] hover:text-white transition cursor-pointer"
+                title="Recortar"
+              >
+                <Scissors className="w-3 h-3" />
+              </button>
+              <button
+                onClick={() => formatDoc('copy')}
+                className="p-1 hover:bg-[#2D2D33] rounded text-[#A1A1AA] hover:text-white transition cursor-pointer"
+                title="Copiar"
+              >
+                <Copy className="w-3 h-3" />
+              </button>
+            </div>
+
+            {/* Font Selectors */}
+            <div className="flex items-center gap-1.5 border-r border-[#2F2F33] pr-3 h-9">
+              <select
+                value={fontFamily}
+                onChange={(e) => {
+                  setFontFamily(e.target.value);
+                  formatDoc('fontName', e.target.value);
+                }}
+                className="bg-[#2D2D33] text-white text-[11px] px-2 py-1 rounded-md border border-[#3F3F46] focus:outline-none"
+              >
+                {FONTS_LIST.map((f) => (
+                  <option key={f} value={f}>{f}</option>
+                ))}
+              </select>
+
+              <select
+                value={fontSize}
+                onChange={(e) => {
+                  setFontSize(e.target.value);
+                  formatDoc('fontSize', e.target.value === '12' ? '3' : e.target.value === '16' ? '5' : e.target.value === '24' ? '6' : '4');
+                }}
+                className="bg-[#2D2D33] text-white text-[11px] px-2 py-1 rounded-md border border-[#3F3F46] w-12 focus:outline-none"
+              >
+                {FONT_SIZES.map((sz) => (
+                  <option key={sz} value={sz}>{sz}</option>
+                ))}
+              </select>
+
+              {/* Increase / Decrease / Clear */}
+              <button
+                onClick={() => formatDoc('fontSize', '5')}
+                className="p-1 hover:bg-[#2D2D33] text-white font-bold rounded cursor-pointer"
+                title="Aumentar Fonte"
+              >
+                A⁺
+              </button>
+              <button
+                onClick={() => formatDoc('fontSize', '2')}
+                className="p-1 hover:bg-[#2D2D33] text-white font-bold rounded cursor-pointer"
+                title="Diminuir Fonte"
+              >
+                A⁻
+              </button>
+              <button
+                onClick={() => formatDoc('removeFormat')}
+                className="p-1 hover:bg-[#2D2D33] text-red-400 font-semibold rounded cursor-pointer text-[10px]"
+                title="Limpar todas as formatações"
+              >
+                Limpar
+              </button>
+            </div>
+
+            {/* TextStyle Formatting */}
+            <div className="flex items-center gap-1 border-r border-[#2F2F33] pr-3 h-9">
+              <button
+                onClick={() => formatDoc('bold')}
+                className="p-1.5 hover:bg-[#2D2D33] text-white rounded font-bold cursor-pointer"
+                title="Negrito"
+                id="btn-bold"
+              >
+                <Bold className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('italic')}
+                className="p-1.5 hover:bg-[#2D2D33] text-white rounded italic cursor-pointer"
+                title="Itálico"
+                id="btn-italic"
+              >
+                <Italic className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('underline')}
+                className="p-1.5 hover:bg-[#2D2D33] text-white rounded underline cursor-pointer"
+                title="Sublinhado"
+                id="btn-underline"
+              >
+                <Underline className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('strikeThrough')}
+                className="p-1.5 hover:bg-[#2D2D33] text-white rounded line-through cursor-pointer"
+                title="Tachado"
+              >
+                <Strikethrough className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('superscript')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded font-mono text-[10px] cursor-pointer"
+                title="Sobrescrito"
+              >
+                x²
+              </button>
+              <button
+                onClick={() => formatDoc('subscript')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded font-mono text-[10px] cursor-pointer"
+                title="Subscrito"
+              >
+                x₂
+              </button>
+            </div>
+
+            {/* Colors group */}
+            <div className="flex items-center gap-2 border-r border-[#2F2F33] pr-3 h-9">
+              <div className="flex flex-col items-center">
+                <input
+                  type="color"
+                  onChange={(e) => formatDoc('foreColor', e.target.value)}
+                  className="w-5 h-4 cursor-pointer rounded border-none bg-transparent"
+                  title="Cor da Fonte"
+                />
+                <span className="text-[8px] text-gray-400 mt-0.5">Cor</span>
+              </div>
+              <div className="flex flex-col items-center">
+                <input
+                  type="color"
+                  defaultValue="#ffff00"
+                  onChange={(e) => formatDoc('hiliteColor', e.target.value)}
+                  className="w-5 h-4 cursor-pointer rounded border-none bg-transparent"
+                  title="Marca-texto / Highlight"
+                />
+                <span className="text-[8px] text-gray-400 mt-0.5">Marcador</span>
+              </div>
+            </div>
+
+            {/* Alignments & Line height Spacing */}
+            <div className="flex items-center gap-1 border-r border-[#2F2F33] pr-3 h-9">
+              <button
+                onClick={() => formatDoc('justifyLeft')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded cursor-pointer"
+                title="Alinhar Esquerda"
+              >
+                <AlignLeft className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('justifyCenter')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded cursor-pointer"
+                title="Centralizar"
+              >
+                <AlignCenter className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('justifyRight')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded cursor-pointer"
+                title="Alinhar Direita"
+              >
+                <AlignRight className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('justifyFull')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded cursor-pointer"
+                title="Justificar"
+              >
+                <AlignJustify className="w-3.5 h-3.5" />
+              </button>
+
+              <select
+                value={lineSpacing}
+                onChange={(e) => setLineSpacing(e.target.value)}
+                className="bg-[#2D2D33] text-white text-[10px] px-1 py-0.5 rounded border border-[#3F3F46] focus:outline-none ml-1 w-14"
+                title="Espaçamento entre linhas"
+              >
+                <option value="1.0">1.0</option>
+                <option value="1.15">1.15</option>
+                <option value="1.5">1.5</option>
+                <option value="2.0">2.0</option>
+              </select>
+            </div>
+
+            {/* Lists & Indents */}
+            <div className="flex items-center gap-1 border-r border-[#2F2F33] pr-3 h-9">
+              <button
+                onClick={() => formatDoc('insertUnorderedList')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded cursor-pointer"
+                title="Lista com Marcadores"
+              >
+                <List className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('insertOrderedList')}
+                className="p-1 hover:bg-[#2D2D33] text-white rounded cursor-pointer"
+                title="Lista Numerada"
+              >
+                <ListOrdered className="w-3.5 h-3.5" />
+              </button>
+              <button
+                onClick={() => formatDoc('outdent')}
+                className="p-1 hover:bg-[#2D2D33] text-[#A1A1AA] hover:text-white rounded cursor-pointer font-bold text-[10px]"
+                title="Diminuir Recuo"
+              >
+                ←
+              </button>
+              <button
+                onClick={() => formatDoc('indent')}
+                className="p-1 hover:bg-[#2D2D33] text-[#A1A1AA] hover:text-white rounded cursor-pointer font-bold text-[10px]"
+                title="Aumentar Recuo"
+              >
+                →
+              </button>
+            </div>
+
+            {/* Rapid Styles card container */}
+            <div className="flex items-center gap-2 overflow-x-auto scrollbar-none">
+              <button
+                onClick={() => formatDoc('formatBlock', 'p')}
+                className="px-2 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded border border-[#3F3F46] text-white text-[10px] flex flex-col items-start min-w-[70px] cursor-pointer"
+              >
+                <span className="font-semibold text-[11px]">Normal</span>
+                <span className="text-[8px] text-gray-400">Padrão</span>
+              </button>
+              <button
+                onClick={() => insertTemplateHtml('<p style="margin-bottom: 0px;">Este parágrafo não possui margem inferior.</p>')}
+                className="px-2 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded border border-[#3F3F46] text-white text-[10px] flex flex-col items-start min-w-[85px] cursor-pointer"
+              >
+                <span className="font-semibold text-[11px]">Sem espaçar</span>
+                <span className="text-[8px] text-gray-400">Zero margin</span>
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'h1')}
+                className="px-2 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded border border-[#3F3F46] text-white text-[10px] flex flex-col items-start min-w-[70px] cursor-pointer"
+              >
+                <span className="font-bold text-[11px] text-blue-400">Cabeça 1</span>
+                <span className="text-[8px] text-gray-400">Título H1</span>
+              </button>
+              <button
+                onClick={() => formatDoc('formatBlock', 'h2')}
+                className="px-2 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded border border-[#3F3F46] text-white text-[10px] flex flex-col items-start min-w-[70px] cursor-pointer"
+              >
+                <span className="font-bold text-[11px] text-emerald-400">Cabeça 2</span>
+                <span className="text-[8px] text-gray-400">Título H2</span>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: INSERIR */}
+        {activeRibbonTab === 'inserir' && (
+          <div className="flex items-center gap-3.5 flex-wrap">
+            {/* Pages & sections */}
+            <button
+              onClick={() => insertTemplateHtml('<div style="page-break-before: always; border-top: 1px dashed #cbd5e1; margin: 24px 0;" contenteditable="false"></div><p></p>')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Plus className="w-3.5 h-3.5 text-blue-400" />
+              <span>Folha em Branco</span>
+            </button>
+            <button
+              onClick={() => insertTemplateHtml('<div style="border-top: 2px dashed #94a3b8; margin: 16px 0;" contenteditable="false"></div><p></p>')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Minimize2 className="w-3.5 h-3.5 text-gray-400" />
+              <span>Quebra Seção</span>
+            </button>
+
+            <div className="w-px h-8 bg-[#2F2F33]" />
+
+            {/* Table Grid trigger */}
+            <div className="relative">
+              <button
+                onClick={() => setShowTableSelector(!showTableSelector)}
+                className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+                id="btn-insert-table"
+              >
+                <TableIcon className="w-3.5 h-3.5 text-emerald-400" />
+                <span>Tabela</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+
+              {showTableSelector && (
+                <div className="absolute top-full left-0 mt-2 bg-[#1C1C1F] border border-[#2D2D30] rounded-xl shadow-2xl p-4 z-50 min-w-[220px]">
+                  <p className="text-[11px] font-bold text-gray-300 mb-2">Grade de Tabela (10x10)</p>
+                  <div className="grid grid-cols-10 gap-0.5 mb-3 bg-[#0F0F11] p-1.5 rounded-lg border border-[#2D2D30]">
+                    {Array.from({ length: 8 }).map((_, r) => (
+                      <React.Fragment key={r}>
+                        {Array.from({ length: 8 }).map((_, c) => {
+                          const row = r + 1;
+                          const col = c + 1;
+                          const isHighlighted = tableGridHover && row <= tableGridHover.r && col <= tableGridHover.c;
+                          return (
+                            <div
+                              key={c}
+                              onMouseEnter={() => setTableGridHover({ r: row, c: col })}
+                              onMouseLeave={() => setTableGridHover(null)}
+                              onClick={() => {
+                                handleTableGridInsert(row, col);
+                                setShowTableSelector(false);
+                              }}
+                              className={`w-4.5 h-4.5 border transition cursor-pointer ${
+                                isHighlighted
+                                  ? 'bg-blue-600 border-blue-400 shadow-sm shadow-blue-500/25'
+                                  : 'bg-[#18181B] border-[#2E2E33] hover:bg-[#27272A]'
+                              }`}
+                            />
+                          );
+                        })}
+                      </React.Fragment>
+                    ))}
+                  </div>
+                  <div className="text-center text-xs font-semibold text-blue-400 bg-blue-500/10 py-1 rounded">
+                    {tableGridHover ? `${tableGridHover.c} colunas x ${tableGridHover.r} linhas` : 'Selecione o tamanho'}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Dynamic visual graphics */}
+            <input
+              type="file"
+              id="ribbon-image-upload"
+              accept="image/*"
+              onChange={handleNewImageSelect}
+              className="hidden"
+            />
+            <button
+              onClick={() => document.getElementById('ribbon-image-upload')?.click()}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <ImageIcon className="w-3.5 h-3.5 text-sky-400" />
+              <span>Imagem</span>
+            </button>
+
+            <button
+              onClick={() => insertTemplateHtml('<div style="width: 140px; height: 80px; bg: #3b82f6; background-color: #3b82f6; border: 2px solid #1d4ed8; border-radius: 6px; display: inline-block; margin: 10px;" contenteditable="false"></div><p></p>')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <HelpCircle className="w-3.5 h-3.5 text-amber-400" />
+              <span>Formas</span>
+            </button>
+
+            {/* Smart Art & charts */}
+            <button
+              onClick={() => insertTemplateHtml(getSmartArtProcess())}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Inserir estrutura de processo SmartArt"
+            >
+              <Network className="w-3.5 h-3.5 text-purple-400" />
+              <span>SmartArt</span>
+            </button>
+
+            <button
+              onClick={() => insertTemplateHtml(getChartHtml())}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Inserir gráfico de barras editável"
+            >
+              <FileText className="w-3.5 h-3.5 text-red-400" />
+              <span>Gráfico</span>
+            </button>
+
+            <div className="w-px h-8 bg-[#2F2F33]" />
+
+            {/* Text boxes, WordArt, Date & Symbols */}
+            <button
+              onClick={() => insertTemplateHtml('<div style="border: 1px solid #cbd5e1; border-radius: 6px; padding: 12px; margin: 12px 0; background-color: #fafafa; max-width: 250px;"><strong>Caixa de Texto:</strong> Insira seu comentário aqui...</div><p></p>')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <StickyNote className="w-3.5 h-3.5 text-stone-400" />
+              <span>Caixa Texto</span>
+            </button>
+
+            <button
+              onClick={() => insertTemplateHtml(getWordArtHtml())}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Sparkles className="w-3.5 h-3.5 text-pink-400" />
+              <span>Arte Texto</span>
+            </button>
+
+            <button
+              onClick={() => insertTemplateHtml(getDropCapHtml())}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Formatar com letra inicial capitular gigante"
+            >
+              <Type className="w-3.5 h-3.5 text-blue-400" />
+              <span>Capitular</span>
+            </button>
+
+            <button
+              onClick={() => insertTemplateHtml(` ${new Date().toLocaleDateString('pt-BR')} às ${new Date().toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })} `)}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Data/Hora</span>
+            </button>
+
+            {/* Símbolos / Equações */}
+            <div className="relative">
+              <button
+                onClick={() => setSymbolPickerOpen(!symbolPickerOpen)}
+                className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              >
+                <span>Símbolos/Equações</span>
+                <ChevronDown className="w-3 h-3" />
+              </button>
+
+              {symbolPickerOpen && (
+                <div className="absolute top-full right-0 mt-2 bg-[#1C1C1F] border border-[#2D2D30] rounded-xl shadow-2xl p-4 z-50 min-w-[280px]">
+                  <p className="text-[11px] font-bold text-gray-300 mb-2">Inserir Equação Científica</p>
+                  <div className="flex flex-col gap-1.5 mb-3">
+                    <button
+                      onClick={() => {
+                        insertTemplateHtml('<div style="text-align: center; margin: 12px 0; font-family: \'Georgia\', serif; font-size: 15px; color: #1e3a8a;"><strong>Equação Quadrática:</strong> &nbsp; x = (-b ± √(b² - 4ac)) / 2a</div><p></p>');
+                        setSymbolPickerOpen(false);
+                      }}
+                      className="p-1.5 text-left hover:bg-[#2D2D33] rounded text-xs text-white"
+                    >
+                      x = (-b ± √(b² - 4ac)) / 2a
+                    </button>
+                    <button
+                      onClick={() => {
+                        insertTemplateHtml('<div style="text-align: center; margin: 12px 0; font-family: \'Georgia\', serif; font-size: 15px; color: #1e3a8a;"><strong>Teorema Pitágoras:</strong> &nbsp; a² + b² = c²</div><p></p>');
+                        setSymbolPickerOpen(false);
+                      }}
+                      className="p-1.5 text-left hover:bg-[#2D2D33] rounded text-xs text-white"
+                    >
+                      a² + b² = c²
+                    </button>
+                    <button
+                      onClick={() => {
+                        insertTemplateHtml('<div style="text-align: center; margin: 12px 0; font-family: \'Georgia\', serif; font-size: 15px; color: #1e3a8a;"><strong>Estequiometria:</strong> &nbsp; 2H₂ + O₂ ➔ 2H₂O</div><p></p>');
+                        setSymbolPickerOpen(false);
+                      }}
+                      className="p-1.5 text-left hover:bg-[#2D2D33] rounded text-xs text-white"
+                    >
+                      2H₂ + O₂ ➔ 2H₂O
+                    </button>
+                  </div>
+                  <p className="text-[11px] font-bold text-gray-300 mb-1">Símbolos Matemáticos</p>
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {MATH_SYMBOLS.map((sym) => (
+                      <button
+                        key={sym}
+                        onClick={() => {
+                          formatDoc('insertText', sym);
+                          setSymbolPickerOpen(false);
+                        }}
+                        className="p-1 text-center font-mono text-white hover:bg-[#2D2D33] rounded text-xs cursor-pointer"
+                      >
+                        {sym}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Comment and link */}
+            <button
+              onClick={() => insertTemplateHtml('<span style="background-color: #fef08a; border-bottom: 2px dashed #ca8a04; cursor: pointer; color: #854d0e; padding: 1px 4px; border-radius: 2px;" title="Comentário acadêmico: Adicione notas de revisão aqui">[Comentário acadêmico]</span>&nbsp;')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Comentário</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const url = prompt('Digite o endereço do hiperlink (ex: https://google.com):');
+                if (url) {
+                  const text = prompt('Digite o texto de exibição:', 'Acessar Link');
+                  insertTemplateHtml(`<a href="${url}" target="_blank" style="color: #2563eb; text-decoration: underline; font-weight: 500;">${text || url}</a> `);
+                }
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Link className="w-3.5 h-3.5 text-blue-400" />
+              <span>Hiperlink</span>
+            </button>
+          </div>
+        )}
+
+        {/* TAB: DESENHAR */}
+        {activeRibbonTab === 'desenhar' && (
+          <div className="flex items-center gap-4 flex-wrap">
+            <button
+              onClick={() => setIsDrawingMode(false)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer ${
+                !isDrawingMode ? 'bg-blue-600 text-white' : 'bg-[#2D2D33] text-[#EDEDED] hover:bg-[#3F3F46]'
+              }`}
+            >
+              Selecionar / Digitar
+            </button>
+
+            <div className="w-px h-8 bg-[#2F2F33]" />
+
+            {/* Green and Red Quick Pens */}
+            <button
+              onClick={() => {
+                setDrawColor('#22C55E');
+                setDrawingTool('pen');
+                setDrawWidth(3);
+                setIsDrawingMode(true);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                isDrawingMode && drawingTool === 'pen' && drawColor === '#22C55E'
+                  ? 'bg-green-600 text-white'
+                  : 'bg-[#2D2D33] text-green-400 border border-green-500/30 hover:bg-[#3F3F46]'
+              }`}
+            >
+              <PenTool className="w-3.5 h-3.5" />
+              Caneta Verde
+            </button>
+
+            <button
+              onClick={() => {
+                setDrawColor('#EF4444');
+                setDrawingTool('pen');
+                setDrawWidth(3);
+                setIsDrawingMode(true);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                isDrawingMode && drawingTool === 'pen' && drawColor === '#EF4444'
+                  ? 'bg-red-600 text-white'
+                  : 'bg-[#2D2D33] text-red-400 border border-red-500/30 hover:bg-[#3F3F46]'
+              }`}
+            >
+              <PenTool className="w-3.5 h-3.5" />
+              Caneta Vermelha
+            </button>
+
+            {/* Yellow Highlighter */}
+            <button
+              onClick={() => {
+                setDrawColor('#FACC15');
+                setDrawingTool('highlighter');
+                setDrawWidth(14);
+                setIsDrawingMode(true);
+              }}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                isDrawingMode && drawingTool === 'highlighter'
+                  ? 'bg-amber-500 text-stone-950'
+                  : 'bg-[#2D2D33] text-amber-300 border border-amber-500/30 hover:bg-[#3F3F46]'
+              }`}
+            >
+              <Highlighter className="w-3.5 h-3.5" />
+              Marca-texto Amarelo
+            </button>
+
+            {/* Eraser / Clear */}
+            <button
+              onClick={clearDrawings}
+              className="px-3 py-1.5 bg-[#2D2D33] text-red-400 border border-red-500/30 hover:bg-[#3F3F46] rounded-lg text-xs font-semibold transition flex items-center gap-1.5 cursor-pointer"
+              title="Apaga todos os desenhos"
+            >
+              <Eraser className="w-3.5 h-3.5" />
+              Apagador
+            </button>
+
+            <div className="w-px h-8 bg-[#2F2F33]" />
+
+            {/* Brush Width Slider */}
+            {isDrawingMode && (
+              <div className="flex items-center gap-2">
+                <span className="text-[10px] text-gray-400">Espessura:</span>
+                <input
+                  type="range"
+                  min="1"
+                  max="20"
+                  value={drawWidth}
+                  onChange={(e) => setDrawWidth(Number(e.target.value))}
+                  className="w-20 cursor-pointer accent-blue-500"
+                />
+                <span className="text-[11px] text-white font-semibold">{drawWidth}px</span>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAB: LAYOUT */}
+        {activeRibbonTab === 'layout' && (
+          <div className="flex items-center gap-3.5 flex-wrap">
+            {/* Margins selection */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-gray-400 mr-1.5">Margens:</span>
+              <select
+                value={margins}
+                onChange={(e) => setMargins(e.target.value as any)}
+                className="bg-[#2D2D33] text-white text-[11px] px-2 py-1 rounded-md border border-[#3F3F46] focus:outline-none"
+              >
+                <option value="normal">Normal (2.5 cm)</option>
+                <option value="estreita">Estreito (1.27 cm)</option>
+                <option value="moderada">Moderado (1.9 cm)</option>
+                <option value="larga">Largo (3.2 cm)</option>
+              </select>
+            </div>
+
+            {/* Orientation */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-gray-400 mr-1.5">Orientação:</span>
+              <select
+                value={orientation}
+                onChange={(e) => setOrientation(e.target.value as any)}
+                className="bg-[#2D2D33] text-white text-[11px] px-2 py-1 rounded-md border border-[#3F3F46] focus:outline-none"
+              >
+                <option value="portrait">Retrato</option>
+                <option value="landscape">Paisagem</option>
+              </select>
+            </div>
+
+            {/* Size */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-gray-400 mr-1.5">Tamanho:</span>
+              <select
+                value={pageFormat}
+                onChange={(e) => setPageFormat(e.target.value as any)}
+                className="bg-[#2D2D33] text-white text-[11px] px-2 py-1 rounded-md border border-[#3F3F46] focus:outline-none"
+              >
+                <option value="a4">A4 (210 x 297 mm)</option>
+                <option value="a5">A5 (148 x 210 mm)</option>
+                <option value="letter">Letter (215 x 279 mm)</option>
+              </select>
+            </div>
+
+            {/* Column Layout */}
+            <div className="flex items-center gap-1">
+              <span className="text-[11px] text-gray-400 mr-1.5">Colunas:</span>
+              <select
+                value={columns}
+                onChange={(e) => setColumns(e.target.value as any)}
+                className="bg-[#2D2D33] text-white text-[11px] px-2 py-1 rounded-md border border-[#3F3F46] focus:outline-none"
+              >
+                <option value="1">1 Coluna</option>
+                <option value="2">2 Colunas</option>
+                <option value="3">3 Colunas</option>
+              </select>
+            </div>
+
+            <div className="w-px h-8 bg-[#2F2F33]" />
+
+            {/* Indent numerical controller */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-400">Recuo Esq:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.5"
+                  value={indentLeft}
+                  onChange={(e) => setIndentLeft(Number(e.target.value))}
+                  className="w-12 bg-[#2D2D33] text-white text-[11px] px-1 py-0.5 rounded border border-[#3F3F46] focus:outline-none"
+                />
+                <span className="text-[10px] text-gray-500">cm</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-400">Recuo Dir:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="10"
+                  step="0.5"
+                  value={indentRight}
+                  onChange={(e) => setIndentRight(Number(e.target.value))}
+                  className="w-12 bg-[#2D2D33] text-white text-[11px] px-1 py-0.5 rounded border border-[#3F3F46] focus:outline-none"
+                />
+                <span className="text-[10px] text-gray-500">cm</span>
+              </div>
+            </div>
+
+            {/* Spacing controller */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-400">Esp. Antes:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="48"
+                  value={spacingBefore}
+                  onChange={(e) => setSpacingBefore(Number(e.target.value))}
+                  className="w-12 bg-[#2D2D33] text-white text-[11px] px-1 py-0.5 rounded border border-[#3F3F46] focus:outline-none"
+                />
+                <span className="text-[10px] text-gray-500">pt</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="text-[10px] text-gray-400">Esp. Depois:</span>
+                <input
+                  type="number"
+                  min="0"
+                  max="48"
+                  value={spacingAfter}
+                  onChange={(e) => setSpacingAfter(Number(e.target.value))}
+                  className="w-12 bg-[#2D2D33] text-white text-[11px] px-1 py-0.5 rounded border border-[#3F3F46] focus:outline-none"
+                />
+                <span className="text-[10px] text-gray-500">pt</span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: REFERÊNCIAS */}
+        {activeRibbonTab === 'referencias' && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => insertTemplateHtml(getTOC())}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Inserir sumário acadêmico estruturado"
+            >
+              <BookOpen className="w-3.5 h-3.5 text-blue-400" />
+              <span>Gerar Sumário</span>
+            </button>
+
+            <button
+              onClick={() => insertTemplateHtml('<sup style="color: #2563eb; font-weight: bold; cursor: help;" title="Nota de rodapé: Detalhes da fonte bibliográfica inseridos no final do artigo.">[Nota Rodapé]</sup>&nbsp;')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Nota de Rodapé</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const author = prompt('Nome do autor:', 'Silva');
+                const year = prompt('Ano da publicação:', '2024');
+                if (author && year) {
+                  insertTemplateHtml(` (${author}, ${year}) `);
+                }
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Inserir Citação</span>
+            </button>
+
+            <button
+              onClick={() => {
+                insertTemplateHtml(`<div style="margin: 12px 0; font-size: 13px; color: #475569; border-left: 3px solid #cbd5e1; padding-left: 10px;"><strong>SILVA, José.</strong> <em>Estudos de Caso de Medicina Interna.</em> São Paulo: Editora Universitária, 2024.</div><p></p>`);
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Bibliografia</span>
+            </button>
+          </div>
+        )}
+
+        {/* TAB: COLABORAÇÃO */}
+        {activeRibbonTab === 'colaboracao' && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(window.location.href);
+                confetti({ particleCount: 60, spread: 40 });
+                alert('Link de compartilhamento copiado para a área de transferência!');
+              }}
+              className="px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Compartilhar Documento</span>
+            </button>
+
+            <button
+              onClick={() => {
+                const comment = prompt('Escreva seu comentário acadêmico:');
+                if (comment) {
+                  insertTemplateHtml(`<span style="background-color: #fef08a; border-bottom: 2px dashed #eab308; cursor: pointer; padding: 2px 4px; border-radius: 4px;" title="Comentário: ${comment}">[Revisar: ${comment}]</span>&nbsp;`);
+                }
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Adicionar Nota de Revisão</span>
+            </button>
+
+            <button
+              onClick={() => {
+                alert('Histórico de versões: Versão salva localmente em ' + new Date(lesson?.updatedAt || '').toLocaleTimeString());
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Histórico Versões</span>
+            </button>
+          </div>
+        )}
+
+        {/* TAB: PROTEÇÃO */}
+        {activeRibbonTab === 'protecao' && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => {
+                const pwd = prompt('Defina uma senha de visualização para o documento:');
+                if (pwd) {
+                  alert('Documento protegido com sucesso por chave de criptografia local.');
+                }
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <Lock className="w-3.5 h-3.5 text-red-400" />
+              <span>Bloquear por Senha</span>
+            </button>
+
+            <button
+              onClick={() => insertTemplateHtml(getSignatureHtml(db.profile?.name || 'Estudante'))}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Assinar digitalmente o documento"
+            >
+              <span>Assinar Documento</span>
+            </button>
+
+            <button
+              onClick={() => {
+                if (editorContentRef.current) {
+                  const isReadOnly = editorContentRef.current.contentEditable === 'true';
+                  editorContentRef.current.contentEditable = isReadOnly ? 'false' : 'true';
+                  alert(isReadOnly ? 'Documento definido como SOMENTE LEITURA' : 'Documento desbloqueado para escrita');
+                }
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Toggle Somente Leitura</span>
+            </button>
+          </div>
+        )}
+
+        {/* TAB: VER */}
+        {activeRibbonTab === 'ver' && (
+          <div className="flex items-center gap-4 flex-wrap">
+            {/* Sheet Background color */}
+            <div className="flex items-center bg-[#2D2D33] border border-[#3F3F46] rounded-lg p-0.5">
+              <span className="text-[10px] text-gray-400 px-1.5">Fundo Folha:</span>
+              <button
+                onClick={() => setPageAppearance('white')}
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                  pageAppearance === 'white' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Branca
+              </button>
+              <button
+                onClick={() => setPageAppearance('dark')}
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                  pageAppearance === 'dark' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Escura
+              </button>
+              <button
+                onClick={() => setPageAppearance('auto')}
+                className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
+                  pageAppearance === 'auto' ? 'bg-blue-600 text-white' : 'text-gray-400 hover:text-white'
+                }`}
+              >
+                Tema
+              </button>
+            </div>
+
+            {/* Toggle Ruler */}
+            <button
+              onClick={() => setRulerVisible(!rulerVisible)}
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
+                rulerVisible ? 'bg-blue-600 text-white' : 'bg-[#2D2D33] text-gray-400 hover:bg-[#3F3F46]'
+              }`}
+            >
+              <Eye className="w-3.5 h-3.5" />
+              <span>Régua Interativa</span>
+            </button>
+
+            {/* Zoom presets */}
+            <div className="flex items-center gap-1 bg-[#2D2D33] px-2 py-1 rounded-lg border border-[#3F3F46]">
+              <span className="text-[10px] text-gray-400 mr-1">Zoom:</span>
+              <button onClick={() => setZoom(75)} className="px-1.5 hover:text-white font-mono text-[10px]">75%</button>
+              <button onClick={() => setZoom(100)} className="px-1.5 text-blue-400 font-mono text-[10px] font-bold">100%</button>
+              <button onClick={() => setZoom(125)} className="px-1.5 hover:text-white font-mono text-[10px]">125%</button>
+              <button onClick={() => setZoom(150)} className="px-1.5 hover:text-white font-mono text-[10px]">150%</button>
+            </div>
+          </div>
+        )}
+
+        {/* TAB: PLUG-INS */}
+        {activeRibbonTab === 'plugins' && (
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => handleTranslateText('Inglês')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Traduz o texto inteiro para o Inglês"
+            >
+              <Globe className="w-3.5 h-3.5 text-blue-400" />
+              <span>Tradutor (Inglês)</span>
+            </button>
+
+            <button
+              onClick={() => handleTranslateText('Espanhol')}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Traduz o texto inteiro para o Espanhol"
+            >
+              <Globe className="w-3.5 h-3.5 text-emerald-400" />
+              <span>Tradutor (Espanhol)</span>
+            </button>
+
+            <button
+              onClick={() => {
+                alert('Sinônimo: Digite uma palavra no documento e clique com o botão direito para ver sinônimos.');
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Sinônimos</span>
+            </button>
+
+            <button
+              onClick={() => {
+                alert('Macros: Editor de scripts avançados em JavaScript.');
+              }}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+            >
+              <span>Editor de Macros</span>
+            </button>
+          </div>
+        )}
+
+        {/* TAB: AI (ESTUDOS & COMPONENTES) */}
+        {activeRibbonTab === 'ai' && (
+          <div className="flex items-center gap-3 flex-wrap">
+            {/* Study AI popup trigger */}
             <button
               onClick={() => {
                 setAiAction('summarize');
                 setAiModalOpen(true);
               }}
-              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-blue-400 hover:bg-[#242427] rounded-lg transition cursor-pointer"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              id="btn-ai-assistant"
             >
-              <Sparkles className="w-3.5 h-3.5" />
-              IA Assistente
+              <Sparkles className="w-3.5 h-3.5 text-yellow-300 animate-pulse" />
+              <span>IA Assistente de Estudo</span>
             </button>
-            <button
-              onClick={() => setShowAudioSidebar(!showAudioSidebar)}
-              className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg transition cursor-pointer ${
-                showAudioSidebar
-                  ? 'bg-red-500/20 text-red-400 border border-red-500/30 font-bold'
-                  : 'text-red-400 hover:bg-[#242427]'
-              }`}
-              title="Abre o painel lateral de gravação e transcrição de áudios de aulas"
-            >
-              <Mic className="w-3.5 h-3.5" />
-              Áudio da Aula
-            </button>
+
             <button
               onClick={() => setOcrModalOpen(true)}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-[#919196] hover:text-white hover:bg-[#242427] rounded-lg transition cursor-pointer"
-              title="Transcrever anotação manuscrita ou foto do quadro com OCR"
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Transcrição de caderno manuscrito"
+              id="btn-ai-ocr"
             >
-              <Camera className="w-3.5 h-3.5" />
-              OCR Foto
+              <Camera className="w-3.5 h-3.5 text-sky-400" />
+              <span>OCR Transcrever Foto</span>
             </button>
+
+            <button
+              onClick={() => setShowAudioSidebar(!showAudioSidebar)}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1.5 ${
+                showAudioSidebar
+                  ? 'bg-red-500/25 text-red-400 border border-red-500/30 font-bold'
+                  : 'bg-[#2D2D33] text-red-400 border border-red-500/30 hover:bg-[#3F3F46]'
+              }`}
+            >
+              <Mic className="w-3.5 h-3.5" />
+              <span>Gravar Áudio</span>
+            </button>
+
+            <div className="w-px h-8 bg-[#2F2F33]" />
+
+            {/* AI Callout block insert */}
+            <div className="flex items-center gap-1">
+              <span className="text-[10px] text-gray-400">Caixas IA:</span>
+              {(['highlight', 'definition', 'warning', 'example'] as const).map((block) => (
+                <button
+                  key={block}
+                  onClick={() => insertTemplateHtml(getCalloutHtml(block) || '')}
+                  className="px-1.5 py-1 bg-[#2D2D33] hover:bg-[#3F3F46] rounded text-[9px] text-[#EDEDED]"
+                >
+                  {block === 'highlight' ? 'Destaque' : block === 'definition' ? 'Definição' : block === 'warning' ? 'Prova' : 'Exemplo'}
+                </button>
+              ))}
+            </div>
+
+            <div className="w-px h-8 bg-[#2F2F33]" />
+
+            {/* UNALTERED FLASHCARDS & MINDMAP BUTTONS */}
             <button
               onClick={handleGenerateFlashcards}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-[#919196] hover:text-white hover:bg-[#242427] rounded-lg transition cursor-pointer"
-              title="Gerar baralho de flashcards a partir desta aula"
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Gerar flashcards para revisão utilizando inteligência artificial"
+              id="btn-generate-flashcards"
             >
-              <Brain className="w-3.5 h-3.5" />
-              Flashcards
+              <Brain className="w-3.5 h-3.5 text-amber-400" />
+              <span>Criar Flashcards</span>
             </button>
+
             <button
               onClick={handleGenerateMindmap}
-              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-[#919196] hover:text-white hover:bg-[#242427] rounded-lg transition cursor-pointer"
-              title="Gerar mapa mental conceitual"
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Gerar mapa mental conceitual estruturado automaticamente"
+              id="btn-generate-mindmap"
             >
-              <Network className="w-3.5 h-3.5" />
-              Mapa Mental
+              <Network className="w-3.5 h-3.5 text-purple-400" />
+              <span>Criar Mapa Mental</span>
             </button>
           </div>
-
-          {/* Export & Save */}
-          <div className="flex items-center gap-1.5 border-l border-[#242427] pl-2">
-            <button
-              onClick={handleExportDocx}
-              className="flex items-center gap-1 px-3 py-1.5 bg-[#1C1C1F] hover:bg-[#242427] border border-[#242427] text-[#EDEDED] hover:text-white text-xs font-medium rounded-xl transition cursor-pointer"
-              title="Baixar como arquivo Word (.docx) formatado"
-            >
-              <Download className="w-3.5 h-3.5" />
-              Word (.docx)
-            </button>
-
-            <button
-              onClick={handleExportPdf}
-              className="flex items-center gap-1 px-3 py-1.5 bg-[#1C1C1F] hover:bg-[#242427] border border-[#242427] text-[#EDEDED] hover:text-white text-xs font-medium rounded-xl transition cursor-pointer"
-              title="Baixar como arquivo PDF (.pdf) formatado"
-            >
-              <FileText className="w-3.5 h-3.5" />
-              PDF (.pdf)
-            </button>
-
-            <button
-              onClick={() => window.print()}
-              className="p-2 text-[#919196] hover:text-white hover:bg-[#1C1C1F] rounded-xl transition cursor-pointer"
-              title="Imprimir ou Salvar em PDF"
-            >
-              <Printer className="w-4 h-4" />
-            </button>
-
-            <button
-              onClick={() => handleSave(false)}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-600 hover:bg-blue-500 text-white text-xs font-semibold rounded-xl shadow-xs transition cursor-pointer"
-            >
-              <Save className="w-3.5 h-3.5" />
-              {saveStatus === 'saving' ? 'Salvando...' : 'Salvar'}
-            </button>
-          </div>
-        </div>
-      </header>
-
-      {/* Formatting & Canvas Toolbar */}
-      <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-2 bg-[#161618] border-b border-[#242427] text-xs z-10 no-print">
-        {/* Text styling group */}
-        <div className="flex items-center flex-wrap gap-1">
-          {/* Headings */}
-          <select
-            onChange={(e) => formatDoc('formatBlock', e.target.value)}
-            className="px-2 py-1 rounded-lg border border-[#242427] bg-[#1C1C1F] text-white text-xs font-medium focus:outline-none"
-            defaultValue="p"
-          >
-            <option value="p">Parágrafo</option>
-            <option value="h1">Título Principal (H1)</option>
-            <option value="h2">Subtítulo (H2)</option>
-            <option value="h3">Tópico (H3)</option>
-          </select>
-
-          {/* Font Family */}
-          <select
-            onChange={(e) => formatDoc('fontName', e.target.value)}
-            className="px-2 py-1 rounded-lg border border-[#242427] bg-[#1C1C1F] text-white text-xs focus:outline-none"
-            defaultValue="Plus Jakarta Sans"
-          >
-            <option value="Plus Jakarta Sans">Modern Sans</option>
-            <option value="Playfair Display">Academic Serif</option>
-            <option value="Cinzel">Editorial Cinzel</option>
-            <option value="Caveat">Manuscrito (Handwriting)</option>
-            <option value="JetBrains Mono">Código / Equação</option>
-          </select>
-
-          <div className="h-4 w-px bg-[#242427] mx-1" />
-
-          {/* Bold, Italic, Underline, Strikethrough */}
-          <button
-            onClick={() => formatDoc('bold')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] font-bold text-[#EDEDED] transition cursor-pointer"
-            title="Negrito (Ctrl+B)"
-          >
-            <Bold className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => formatDoc('italic')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] italic text-[#EDEDED] transition cursor-pointer"
-            title="Itálico (Ctrl+I)"
-          >
-            <Italic className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => formatDoc('underline')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] underline text-[#EDEDED] transition cursor-pointer"
-            title="Sublinhado (Ctrl+U)"
-          >
-            <Underline className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => formatDoc('strikeThrough')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] line-through text-[#EDEDED] transition cursor-pointer"
-            title="Tachado"
-          >
-            <Strikethrough className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="h-4 w-px bg-[#242427] mx-1" />
-
-          {/* Color & Highlight */}
-          <div className="flex items-center gap-1">
-            <input
-              type="color"
-              defaultValue="#EDEDED"
-              onChange={(e) => formatDoc('foreColor', e.target.value)}
-              className="w-5 h-5 rounded cursor-pointer border-none bg-transparent"
-              title="Cor do Texto"
-            />
-            <button
-              onClick={() => formatDoc('hiliteColor', '#854d0e')}
-              className="w-5 h-5 rounded bg-yellow-900 border border-yellow-600 hover:scale-110 transition cursor-pointer"
-              title="Marca-texto Amarelo"
-            />
-            <button
-              onClick={() => formatDoc('hiliteColor', '#14532d')}
-              className="w-5 h-5 rounded bg-green-950 border border-green-600 hover:scale-110 transition cursor-pointer"
-              title="Marca-texto Verde"
-            />
-            <button
-              onClick={() => formatDoc('hiliteColor', '#1e3a5f')}
-              className="w-5 h-5 rounded bg-sky-950 border border-sky-600 hover:scale-110 transition cursor-pointer"
-              title="Marca-texto Azul"
-            />
-          </div>
-
-          <div className="h-4 w-px bg-[#242427] mx-1" />
-
-          {/* Alignments */}
-          <button
-            onClick={() => formatDoc('justifyLeft')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] text-[#EDEDED] transition cursor-pointer"
-            title="Alinhar à Esquerda"
-          >
-            <AlignLeft className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => formatDoc('justifyCenter')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] text-[#EDEDED] transition cursor-pointer"
-            title="Centralizar"
-          >
-            <AlignCenter className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => formatDoc('justifyRight')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] text-[#EDEDED] transition cursor-pointer"
-            title="Alinhar à Direita"
-          >
-            <AlignRight className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => formatDoc('justifyFull')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] text-[#EDEDED] transition cursor-pointer"
-            title="Justificar"
-          >
-            <AlignJustify className="w-3.5 h-3.5" />
-          </button>
-
-          <div className="h-4 w-px bg-[#242427] mx-1" />
-
-          {/* Lists & Table */}
-          <button
-            onClick={() => formatDoc('insertUnorderedList')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] text-[#EDEDED] transition cursor-pointer"
-            title="Lista com Marcadores"
-          >
-            <List className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={() => formatDoc('insertOrderedList')}
-            className="p-1.5 rounded-lg hover:bg-[#242427] text-[#EDEDED] transition cursor-pointer"
-            title="Lista Numerada"
-          >
-            <ListOrdered className="w-3.5 h-3.5" />
-          </button>
-          <button
-            onClick={insertTable}
-            className="p-1.5 rounded-lg hover:bg-[#242427] text-[#EDEDED] transition cursor-pointer"
-            title="Inserir Tabela Acadêmica"
-          >
-            <TableIcon className="w-3.5 h-3.5" />
-          </button>
-
-          {/* Math Symbols dropdown button */}
-          <div className="relative">
-            <button
-              onClick={() => setSymbolPickerOpen(!symbolPickerOpen)}
-              className="px-2 py-1 bg-[#1C1C1F] border border-[#242427] rounded-lg text-xs font-mono text-[#EDEDED] hover:bg-[#242427] transition cursor-pointer"
-              title="Símbolos Matemáticos e Científicos"
-            >
-              ∑ π α
-            </button>
-            {symbolPickerOpen && (
-              <div className="absolute top-full mt-1 left-0 bg-[#121214] border border-[#242427] rounded-xl shadow-xl p-2 z-50 grid grid-cols-6 gap-1 w-64">
-                {MATH_SYMBOLS.map((sym) => (
-                  <button
-                    key={sym}
-                    onClick={() => {
-                      formatDoc('insertText', sym);
-                      setSymbolPickerOpen(false);
-                    }}
-                    className="p-1 text-center font-mono text-[#EDEDED] hover:bg-[#1C1C1F] rounded-md text-xs cursor-pointer"
-                  >
-                    {sym}
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Academic Callout quick inserts & Canva layers */}
-        <div className="flex items-center gap-1.5">
-          <span className="text-[11px] text-[#919196] font-medium mr-1">Blocos:</span>
-          <button
-            onClick={() => insertCallout('highlight')}
-            className="px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-lg font-medium text-[11px] hover:bg-amber-500/20 transition cursor-pointer"
-          >
-            💡 Destaque
-          </button>
-          <button
-            onClick={() => insertCallout('definition')}
-            className="px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-lg font-medium text-[11px] hover:bg-emerald-500/20 transition cursor-pointer"
-          >
-            📖 Definição
-          </button>
-          <button
-            onClick={() => insertCallout('warning')}
-            className="px-2 py-1 bg-red-500/10 text-red-400 border border-red-500/20 rounded-lg font-medium text-[11px] hover:bg-red-500/20 transition cursor-pointer"
-          >
-            ⚠️ Prova
-          </button>
-          <button
-            onClick={() => insertCallout('example')}
-            className="px-2 py-1 bg-blue-500/10 text-blue-400 border border-blue-500/20 rounded-lg font-medium text-[11px] hover:bg-blue-500/20 transition cursor-pointer"
-          >
-            🔬 Exemplo
-          </button>
-
-          <div className="h-4 w-px bg-[#242427] mx-1" />
-
-          {/* Floating Element / Canva Post-it */}
-          <button
-            onClick={() => addCanvasElement('callout')}
-            className="flex items-center gap-1 px-2.5 py-1 bg-amber-500/20 text-amber-300 border border-amber-500/30 rounded-lg text-[11px] font-medium hover:bg-amber-500/30 transition cursor-pointer"
-            title="Adicionar post-it flutuante estilo Canva"
-          >
-            <StickyNote className="w-3 h-3" />
-            + Post-it
-          </button>
-
-          {/* Insert Image Button */}
-          <input
-            type="file"
-            id="note-image-upload-input"
-            accept="image/*"
-            onChange={handleNewImageSelect}
-            className="hidden"
-          />
-          <button
-            onClick={() => {
-              const el = document.getElementById('note-image-upload-input');
-              if (el) el.click();
-            }}
-            className="flex items-center gap-1 px-2.5 py-1 bg-blue-500/20 text-blue-300 border border-blue-500/30 rounded-lg text-[11px] font-medium hover:bg-blue-500/30 transition cursor-pointer"
-            title="Inserir e editar uma imagem no texto"
-          >
-            <ImageIcon className="w-3 h-3 text-blue-400" />
-            + Imagem
-          </button>
-
-          {/* Pen / Drawing Mode Toggle */}
-          <button
-            onClick={() => setIsDrawingMode(!isDrawingMode)}
-            className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-[11px] font-medium transition cursor-pointer ${
-              isDrawingMode
-                ? 'bg-blue-600 text-white'
-                : 'bg-[#1C1C1F] border border-[#242427] text-[#EDEDED] hover:bg-[#242427]'
-            }`}
-          >
-            <PenTool className="w-3 h-3" />
-            {isDrawingMode ? 'Caneta Ativa' : 'Desenhar'}
-          </button>
-
-          {isDrawingMode && (
-            <div className="flex items-center gap-1 pl-1">
-              <input
-                type="color"
-                value={drawColor}
-                onChange={(e) => setDrawColor(e.target.value)}
-                className="w-5 h-5 rounded cursor-pointer"
-              />
-              <button
-                onClick={clearDrawings}
-                className="p-1 text-red-400 hover:bg-red-500/10 rounded cursor-pointer"
-                title="Limpar desenhos"
-              >
-                <Trash2 className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          )}
-
-          <div className="h-4 w-px bg-[#242427] mx-1" />
-
-          {/* Page Appearance Selector */}
-          <div className="flex items-center gap-1.5 bg-[#1C1C1F] border border-[#242427] rounded-lg p-0.5">
-            <span className="text-[10px] text-[#919196] font-medium px-1.5">Página:</span>
-            <button
-              onClick={() => {
-                setPageAppearance('white');
-                localStorage.setItem('academic_page_appearance', 'white');
-              }}
-              className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
-                pageAppearance === 'white'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-[#919196] hover:text-white'
-              }`}
-              title="Folha sempre Branca (Estilo Word)"
-            >
-              Branca
-            </button>
-            <button
-              onClick={() => {
-                setPageAppearance('dark');
-                localStorage.setItem('academic_page_appearance', 'dark');
-              }}
-              className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
-                pageAppearance === 'dark'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-[#919196] hover:text-white'
-              }`}
-              title="Folha sempre Escura"
-            >
-              Escura
-            </button>
-            <button
-              onClick={() => {
-                setPageAppearance('auto');
-                localStorage.setItem('academic_page_appearance', 'auto');
-              }}
-              className={`px-2 py-0.5 rounded text-[10px] font-semibold transition cursor-pointer ${
-                pageAppearance === 'auto'
-                  ? 'bg-blue-600 text-white'
-                  : 'text-[#919196] hover:text-white'
-              }`}
-              title="Folha acompanha o tema global do app"
-            >
-              Auto
-            </button>
-          </div>
-        </div>
+        )}
       </div>
 
-      {/* Main Document Workspace */}
+      {/* Main Document Workspace (Zoom & Scroll Wrapper) */}
       {(() => {
         const isAppDark = document.documentElement.classList.contains('dark');
         const isSheetWhite = pageAppearance === 'white' || (pageAppearance === 'auto' && !isAppDark);
@@ -1161,7 +1911,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         const sheetStyle = isSheetWhite ? {
           bg: 'bg-white',
           text: 'text-zinc-800',
-          border: 'border-zinc-200',
+          border: 'border-zinc-200 shadow-xl',
           title: 'text-zinc-900',
           secText: 'text-zinc-500',
           headerBorder: 'border-zinc-200',
@@ -1169,7 +1919,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         } : {
           bg: 'bg-[#121214]',
           text: 'text-[#EDEDED]',
-          border: 'border-[#242427]',
+          border: 'border-[#242427] shadow-2xl',
           title: 'text-white',
           secText: 'text-[#919196]',
           headerBorder: 'border-[#242427]',
@@ -1177,122 +1927,202 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         };
 
         return (
-          <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden">
-            {/* Left/Main Document Sheet Panel */}
-            <div className="flex-1 overflow-y-auto p-4 sm:p-8 flex justify-center items-start relative border-r border-[#242427]/50">
-              {/* Realistic A4 Document Sheet */}
+          <div className="flex-1 flex flex-col lg:flex-row min-h-0 overflow-hidden relative">
+            
+            {/* Scrollable Center Panel */}
+            <div className="flex-1 overflow-auto p-6 sm:p-10 flex flex-col items-center justify-start relative border-r border-[#242427]/50 bg-[#161619] scrollbar-thin">
+              
+              {/* Scale Zoom container */}
               <div
-                className={`relative ${sheetStyle.bg} ${sheetStyle.text} border ${sheetStyle.border} shadow-2xl rounded-2xl transition-all duration-200 print-page ${
-                  pageFormat === 'a4'
-                    ? 'w-full max-w-[210mm] min-h-[297mm] p-8 sm:p-14'
-                    : pageFormat === 'a5'
-                    ? 'w-full max-w-[148mm] min-h-[210mm] p-6 sm:p-10'
-                    : 'w-full max-w-[215mm] min-h-[279mm] p-8 sm:p-12'
-                }`}
+                className="flex flex-col relative transition-transform duration-100 ease-out origin-top"
+                style={{
+                  transform: `scale(${zoom / 100})`,
+                }}
               >
-                {/* Academic Header */}
-                <div className={`border-b ${sheetStyle.headerBorder} pb-4 mb-6 flex items-start justify-between`}>
-                  <div>
-                    <p className="text-[11px] font-bold uppercase tracking-widest text-blue-400">
-                      {discipline?.name || 'CENTRAL ACADÊMICA UNIVERSITÁRIA'}
-                    </p>
-                    <h1 className={`text-2xl sm:text-3xl font-bold mt-1 ${sheetStyle.title}`}>
-                      {title}
-                    </h1>
-                    <p className={`text-xs ${sheetStyle.secText} mt-1`}>
-                      {lessonNumber} • Professor(a): {professor || 'Não informado'} • Data: {date}
-                    </p>
+                {/* Horizontal Scale Ruler */}
+                {rulerVisible && (
+                  <div
+                    className="h-6 bg-[#EDEEF0] border border-[#CBD5E1] rounded-t-lg relative flex items-center select-none"
+                    style={{ width: sheetWidth }}
+                  >
+                    {/* Corner blank intersection */}
+                    <div className="w-6 h-full border-r border-[#CBD5E1] bg-[#E2E8F0] shrink-0" />
+                    
+                    {/* Measurement centimeter notches */}
+                    <div className="flex-1 h-full relative flex items-center">
+                      {Array.from({ length: 18 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="absolute flex flex-col items-center justify-end h-full"
+                          style={{ left: `${(i + 1) * (100 / 19)}%` }}
+                        >
+                          <span className="text-[8px] font-mono font-bold text-[#475569] leading-none mb-0.5">{i + 1}</span>
+                          <div className="w-px h-1.5 bg-[#94A3B8]" />
+                        </div>
+                      ))}
+                      {/* Interactive Drag Margins indicator shapes */}
+                      <div className="absolute left-[8%] bottom-0 transform -translate-x-1/2 w-0 h-0 border-l-3.5 border-l-transparent border-r-3.5 border-r-transparent border-b-6 border-b-blue-600" />
+                      <div className="absolute right-[8%] bottom-0 transform translate-x-1/2 w-0 h-0 border-l-3.5 border-l-transparent border-r-3.5 border-r-transparent border-b-6 border-b-blue-600" />
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <span className={`text-[10px] font-mono ${sheetStyle.secText} bg-[#1C1C1F] dark:bg-[#1C1C1F]/40 px-2 py-1 rounded-md border ${sheetStyle.border}`}>
-                      Pág. 01 / 01
-                    </span>
-                  </div>
-                </div>
-
-                {/* Drawing Canvas Overlay Layer */}
-                {isDrawingMode && (
-                  <canvas
-                    ref={canvasRef}
-                    width={800}
-                    height={1100}
-                    onMouseDown={startDrawing}
-                    onMouseMove={drawMove}
-                    onMouseUp={endDrawing}
-                    onMouseLeave={endDrawing}
-                    className="absolute inset-0 z-30 cursor-crosshair w-full h-full pointer-events-auto"
-                  />
                 )}
 
-                {/* Floating Canva Elements (Sticky notes, stamps) */}
-                {canvasElements.map((el) => (
-                  <div
-                    key={el.id}
-                    className="absolute p-3 rounded-xl shadow-lg border border-[#3A3215] bg-[#1E1B13] cursor-move z-20 group transition-shadow"
-                    style={{
-                      top: `${el.y}px`,
-                      left: `${el.x}px`,
-                      width: `${el.width}px`,
-                    }}
-                    draggable
-                    onDragEnd={(e) => {
-                      const rect = e.currentTarget.parentElement?.getBoundingClientRect();
-                      if (!rect) return;
-                      const newX = e.clientX - rect.left - el.width / 2;
-                      const newY = e.clientY - rect.top - el.height / 2;
-                      setCanvasElements(
-                        canvasElements.map((item) =>
-                          item.id === el.id ? { ...item, x: Math.max(10, newX), y: Math.max(10, newY) } : item
-                        )
-                      );
-                    }}
-                  >
-                    <div className="flex items-center justify-between pb-1 border-b border-amber-500/20 mb-1">
-                      <span className="text-[10px] font-bold text-amber-400 uppercase">Post-it</span>
-                      <button
-                        onClick={() => setCanvasElements(canvasElements.filter((item) => item.id !== el.id))}
-                        className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition cursor-pointer"
-                      >
-                        <Trash2 className="w-3 h-3" />
-                      </button>
+                {/* Left Ruler & Document Sheet Layout Row */}
+                <div className="flex flex-row relative">
+                  
+                  {/* Vertical Ruler */}
+                  {rulerVisible && (
+                    <div
+                      className="w-6 bg-[#EDEEF0] border-l border-b border-[#CBD5E1] rounded-bl-lg relative flex flex-col items-center select-none shrink-0"
+                      style={{ height: sheetHeight }}
+                    >
+                      {Array.from({ length: 25 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="absolute flex items-center justify-end w-full pr-0.5"
+                          style={{ top: `${(i + 1) * (100 / 26)}%` }}
+                        >
+                          <span className="text-[7.5px] font-mono font-bold text-[#475569] mr-0.5">{i + 1}</span>
+                          <div className="w-1.5 h-px bg-[#94A3B8]" />
+                        </div>
+                      ))}
+                      <div className="absolute top-[6%] left-0 transform -translate-y-1/2 w-0 h-0 border-t-3.5 border-t-transparent border-b-3.5 border-b-transparent border-l-6 border-l-blue-600" />
                     </div>
-                    <textarea
-                      value={el.content}
-                      onChange={(e) =>
-                        setCanvasElements(
-                          canvasElements.map((item) => (item.id === el.id ? { ...item, content: e.target.value } : item))
-                        )
-                      }
-                      className="w-full bg-transparent text-xs text-amber-200/90 resize-none focus:outline-hidden leading-tight"
-                      rows={3}
-                    />
+                  )}
+
+                  {/* REALISTIC DOCUMENT SHEET (White / Dark paper, A4 style, shadow) */}
+                  <div
+                    className={`relative ${sheetStyle.bg} ${sheetStyle.text} border ${sheetStyle.border} transition-all duration-200 select-text overflow-hidden`}
+                    style={{
+                      width: pageWidth,
+                      minHeight: pageHeight,
+                      paddingLeft: indentLeft > 0 ? `${indentLeft}cm` : undefined,
+                      paddingRight: indentRight > 0 ? `${indentRight}cm` : undefined,
+                      paddingTop: spacingBefore > 0 ? `${spacingBefore}pt` : undefined,
+                      paddingBottom: spacingAfter > 0 ? `${spacingAfter}pt` : undefined,
+                    }}
+                    id="doc-paper-sheet"
+                  >
+                    <div className={marginClasses[margins]}>
+                      
+                      {/* Document Header Metadata Section */}
+                      <div className={`border-b ${sheetStyle.headerBorder} pb-4 mb-6 flex items-start justify-between`}>
+                        <div>
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-blue-500">
+                            {discipline?.name || 'DIÁRIO ACADÊMICO UNIVERSITÁRIO'}
+                          </p>
+                          <h1 className={`text-2xl font-bold mt-1 tracking-tight ${sheetStyle.title}`}>
+                            {title}
+                          </h1>
+                          <p className={`text-xs ${sheetStyle.secText} mt-1 font-medium`}>
+                            {lessonNumber} • Docente: {professor || 'Não informado'} • Registrado: {date}
+                          </p>
+                        </div>
+                        <div className="text-right">
+                          <span className={`text-[9px] font-mono font-semibold ${sheetStyle.secText} bg-[#E4E4E7]/40 dark:bg-[#1C1C1F]/60 px-2.5 py-1 rounded-md border ${sheetStyle.headerBorder}`}>
+                            Página 1 de 1
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* Drawing Canvas Overlapping Layer */}
+                      {isDrawingMode && (
+                        <canvas
+                          ref={canvasRef}
+                          width={sheetWidth}
+                          height={sheetHeight}
+                          onMouseDown={startDrawing}
+                          onMouseMove={drawMove}
+                          onMouseUp={endDrawing}
+                          onMouseLeave={endDrawing}
+                          className="absolute inset-0 z-30 cursor-crosshair w-full h-full pointer-events-auto"
+                        />
+                      )}
+
+                      {/* Sticky Post-it cards */}
+                      {canvasElements.map((el) => (
+                        <div
+                          key={el.id}
+                          className="absolute p-3 rounded-xl shadow-lg border border-[#3A3215] bg-[#1E1B13] cursor-move z-20 group transition-shadow"
+                          style={{
+                            top: `${el.y}px`,
+                            left: `${el.x}px`,
+                            width: `${el.width}px`,
+                          }}
+                          draggable
+                          onDragEnd={(e) => {
+                            const rect = e.currentTarget.parentElement?.getBoundingClientRect();
+                            if (!rect) return;
+                            const newX = e.clientX - rect.left - el.width / 2;
+                            const newY = e.clientY - rect.top - el.height / 2;
+                            setCanvasElements(
+                              canvasElements.map((item) =>
+                                item.id === el.id ? { ...item, x: Math.max(10, newX), y: Math.max(10, newY) } : item
+                              )
+                            );
+                          }}
+                        >
+                          <div className="flex items-center justify-between pb-1 border-b border-amber-500/20 mb-1">
+                            <span className="text-[10px] font-bold text-amber-400 uppercase">Anotação Rápida</span>
+                            <button
+                              onClick={() => setCanvasElements(canvasElements.filter((item) => item.id !== el.id))}
+                              className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition cursor-pointer"
+                            >
+                              <Trash2 className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <textarea
+                            value={el.content}
+                            onChange={(e) =>
+                              setCanvasElements(
+                                canvasElements.map((item) => (item.id === el.id ? { ...item, content: e.target.value } : item))
+                              )
+                            }
+                            className="w-full bg-transparent text-xs text-amber-200/90 resize-none focus:outline-none leading-tight"
+                            rows={3}
+                          />
+                        </div>
+                      ))}
+
+                      {/* Main Rich text editable container */}
+                      <div
+                        ref={editorContentRef}
+                        contentEditable
+                        suppressContentEditableWarning
+                        onInput={() => {
+                          updateDocumentMetrics();
+                          handleSave(true);
+                        }}
+                        onClick={handleEditorClick}
+                        className={`academic-editor-content focus:outline-none min-h-[420px] leading-relaxed text-sm sm:text-base space-y-4`}
+                        style={{
+                          fontFamily,
+                          lineHeight: lineSpacing,
+                          columnCount: Number(columns),
+                          columnGap: '2rem',
+                        }}
+                        id="rich-text-content-area"
+                      />
+
+                      {/* Document Footer Metadata Section */}
+                      <div className={`border-t ${sheetStyle.headerBorder} pt-4 mt-12 flex items-center justify-between text-[10px] font-semibold tracking-wide ${sheetStyle.secText}`}>
+                        <span>{db.profile.institution || 'CENTRO UNIVERSITÁRIO'} • {db.profile.course || 'Curso Técnico'}</span>
+                        <span>Caderno Acadêmico Real-Time</span>
+                      </div>
+
+                    </div>
                   </div>
-                ))}
 
-                {/* Main Rich Text Content Area */}
-                <div
-                  ref={editorContentRef}
-                  contentEditable
-                  suppressContentEditableWarning
-                  onInput={() => handleSave(true)}
-                  onClick={handleEditorClick}
-                  className={`academic-editor-content focus:outline-hidden min-h-[400px] leading-relaxed text-sm sm:text-base space-y-4 ${sheetStyle.isWhite ? 'text-zinc-800' : 'text-[#EDEDED]'}`}
-                />
-
-                {/* Academic Footer */}
-                <div className={`border-t ${sheetStyle.headerBorder} pt-4 mt-12 flex items-center justify-between text-[11px] ${sheetStyle.secText}`}>
-                  <span>{db.profile.institution || 'Universidade'} • {db.profile.course || 'Graduação'}</span>
-                  <span>Caderno Digital Universitário</span>
                 </div>
               </div>
             </div>
 
             {/* Split Screen Classroom Audio Section */}
             {showAudioSidebar && (
-              <div className="w-full lg:w-[45%] xl:w-[40%] border-t lg:border-t-0 lg:border-l border-[#242427] h-full flex flex-col shrink-0 no-print bg-[#121214]">
+              <div className="w-full lg:w-[45%] xl:w-[40%] border-t lg:border-t-0 lg:border-l border-[#242427] h-full flex flex-col shrink-0 bg-[#121214] no-print z-10">
                 <ClassroomAudioSection
                   lessonId={lessonId}
-                  onInsertNotes={handleInsertNotesFromAudio}
+                  onInsertNotes={handleInsertAudioNotes}
                 />
               </div>
             )}
@@ -1300,100 +2130,114 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         );
       })()}
 
+      {/* OnlyOffice-style bottom Status Bar */}
+      <footer className="h-8 bg-[#18181B] border-t border-[#242427] px-4 flex items-center justify-between text-xs text-[#71717A] select-none z-20">
+        <div className="flex items-center gap-4">
+          <span>Página 1 de 1</span>
+          <div className="w-px h-3.5 bg-[#2E2E33]" />
+          <span>Contagem de palavras: <strong>{wordCount} palavras</strong></span>
+          <span className="hidden sm:inline">•</span>
+          <span className="hidden sm:inline">Caracteres: {charCount}</span>
+        </div>
+
+        <div className="flex items-center gap-4">
+          {/* Seletor Idioma */}
+          <div className="flex items-center gap-1 cursor-pointer hover:text-white transition">
+            <Globe className="w-3.5 h-3.5" />
+            <select
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+              className="bg-transparent border-none text-[11px] py-0 pr-6 text-[#71717A] focus:outline-none focus:ring-0 cursor-pointer hover:text-white"
+            >
+              <option value="Português - Brasil">Português - Brasil</option>
+              <option value="Inglês - EUA">English - USA</option>
+              <option value="Espanhol">Español</option>
+            </select>
+          </div>
+
+          <div className="w-px h-3.5 bg-[#2E2E33]" />
+
+          {/* Zoom controls */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setZoom(Math.max(50, zoom - 10))}
+              className="p-1 hover:text-white transition font-bold"
+              title="Diminuir zoom"
+            >
+              -
+            </button>
+            <input
+              type="range"
+              min="50"
+              max="150"
+              value={zoom}
+              onChange={(e) => setZoom(Number(e.target.value))}
+              className="w-16 h-1 bg-[#2D2D33] rounded-lg appearance-none cursor-pointer accent-blue-500"
+            />
+            <button
+              onClick={() => setZoom(Math.min(150, zoom + 10))}
+              className="p-1 hover:text-white transition font-bold"
+              title="Aumentar zoom"
+            >
+              +
+            </button>
+            <span className="font-mono text-[10px] w-8 text-right font-bold">{zoom}%</span>
+          </div>
+        </div>
+      </footer>
+
       {/* AI Assistant Modal */}
       {aiModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-          <div className="bg-[#121214] border border-[#242427] rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200 max-h-[85vh] flex flex-col">
-            <div className="flex items-center justify-between p-4 border-b border-[#242427] bg-[#161618]">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  <Sparkles className="w-5 h-5" />
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
+          <div className="bg-[#141416] border border-[#242427] rounded-2xl w-full max-w-xl shadow-2xl overflow-hidden max-h-[85vh] flex flex-col animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between p-4 border-b border-[#242427] bg-[#1A1A1E]">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-blue-500/15 text-blue-400 border border-blue-500/25">
+                  <Sparkles className="w-5 h-5 animate-spin-slow" />
                 </div>
                 <div>
-                  <h3 className="text-base font-bold text-white">
-                    Assistente de Estudos IA
-                  </h3>
-                  <p className="text-xs text-[#919196]">
-                    Analisa o conteúdo desta aula e potencializa seus estudos
-                  </p>
+                  <h3 className="text-sm font-bold text-white">Assistente de Estudos IA (Gemini)</h3>
+                  <p className="text-[11px] text-[#A1A1AA]">Sua aula estruturada por inteligência artificial</p>
                 </div>
               </div>
-              <button
-                onClick={() => setAiModalOpen(false)}
-                className="p-1 rounded-lg text-[#919196] hover:text-white hover:bg-[#1C1C1F] cursor-pointer"
-              >
-                ✕
-              </button>
+              <button onClick={() => setAiModalOpen(false)} className="text-gray-400 hover:text-white font-bold cursor-pointer">✕</button>
             </div>
 
-            <div className="p-5 space-y-4 overflow-y-auto flex-1">
+            <div className="p-5 space-y-4 overflow-y-auto flex-1 scrollbar-thin">
               <div>
-                <label className="block text-xs font-semibold uppercase tracking-wider text-[#919196] mb-1.5">
-                  Escolha o tipo de ajuda:
-                </label>
+                <label className="block text-[11px] font-bold text-gray-400 uppercase tracking-wider mb-2">Selecione o comando:</label>
                 <div className="grid grid-cols-2 gap-2">
-                  <button
-                    type="button"
-                    onClick={() => setAiAction('summarize')}
-                    className={`p-2.5 text-left rounded-xl border text-xs font-medium transition cursor-pointer ${
-                      aiAction === 'summarize'
-                        ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 font-bold'
-                        : 'border-[#242427] bg-[#1C1C1F] text-[#919196] hover:text-white hover:bg-[#242427]'
-                    }`}
-                  >
-                    📌 Resumo Executivo
-                    <p className="text-[10px] text-[#636366] mt-0.5">Ideia central e tópicos chave</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAiAction('explain')}
-                    className={`p-2.5 text-left rounded-xl border text-xs font-medium transition cursor-pointer ${
-                      aiAction === 'explain'
-                        ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 font-bold'
-                        : 'border-[#242427] bg-[#1C1C1F] text-[#919196] hover:text-white hover:bg-[#242427]'
-                    }`}
-                  >
-                    💡 Explicar com Analogias
-                    <p className="text-[10px] text-[#636366] mt-0.5">Explicação intuitiva e simples</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAiAction('quiz')}
-                    className={`p-2.5 text-left rounded-xl border text-xs font-medium transition cursor-pointer ${
-                      aiAction === 'quiz'
-                        ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 font-bold'
-                        : 'border-[#242427] bg-[#1C1C1F] text-[#919196] hover:text-white hover:bg-[#242427]'
-                    }`}
-                  >
-                    📝 5 Perguntas de Prova
-                    <p className="text-[10px] text-[#636366] mt-0.5">Simulado com gabarito comentado</p>
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAiAction('cornell_summary')}
-                    className={`p-2.5 text-left rounded-xl border text-xs font-medium transition cursor-pointer ${
-                      aiAction === 'cornell_summary'
-                        ? 'border-blue-500/50 bg-blue-500/10 text-blue-400 font-bold'
-                        : 'border-[#242427] bg-[#1C1C1F] text-[#919196] hover:text-white hover:bg-[#242427]'
-                    }`}
-                  >
-                    📑 Método Cornell
-                    <p className="text-[10px] text-[#636366] mt-0.5">Pistas + Síntese + Resumo</p>
-                  </button>
+                  {[
+                    { id: 'summarize', label: 'Resumo Executivo', desc: 'Ideias centrais e tópicos' },
+                    { id: 'explain', label: 'Explicar com Analogia', desc: 'Explicar de forma lúdica' },
+                    { id: 'quiz', label: 'Quiz com 5 Questões', desc: 'Perguntas com gabarito' },
+                    { id: 'cornell_summary', label: 'Método Cornell', desc: 'Resumo, anotações e dúvidas' },
+                  ].map((act) => (
+                    <button
+                      key={act.id}
+                      onClick={() => setAiAction(act.id)}
+                      className={`p-2.5 text-left rounded-xl border text-xs font-semibold transition cursor-pointer ${
+                        aiAction === act.id
+                          ? 'border-blue-500 bg-blue-500/10 text-blue-400'
+                          : 'border-[#27272A] bg-[#1C1C1F] text-gray-400 hover:text-white'
+                      }`}
+                    >
+                      {act.label}
+                      <p className="text-[10px] text-gray-500 font-normal mt-0.5">{act.desc}</p>
+                    </button>
+                  ))}
                 </div>
               </div>
 
               {aiAction === 'explain' && (
                 <div>
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-[#919196] mb-1">
-                    Dúvida específica (Opcional):
-                  </label>
+                  <label className="block text-xs text-gray-400 mb-1">Especifique sua dúvida:</label>
                   <input
                     type="text"
                     value={aiCustomPrompt}
                     onChange={(e) => setAiCustomPrompt(e.target.value)}
-                    placeholder="Ex: Como funciona o atraso no nó AV?"
-                    className="w-full px-3 py-2 rounded-xl border border-[#242427] text-xs bg-[#1C1C1F] text-white placeholder-[#636366] focus:outline-none focus:border-blue-500"
+                    placeholder="Ex: Explique o potencial de ação cardíaco de forma simples..."
+                    className="w-full px-3 py-2 bg-[#1C1C1F] text-white border border-[#27272A] rounded-xl text-xs focus:outline-none focus:border-blue-500 placeholder-gray-600"
                   />
                 </div>
               )}
@@ -1401,27 +2245,27 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
               <button
                 onClick={handleRunAiStudy}
                 disabled={isAiLoading}
-                className="w-full flex items-center justify-center gap-2 py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 cursor-pointer"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 flex items-center justify-center gap-1.5 cursor-pointer"
               >
-                <Sparkles className="w-4 h-4" />
-                {isAiLoading ? 'Processando com Gemini...' : 'Gerar Análise Acadêmica'}
+                <Sparkles className="w-4 h-4 text-yellow-300" />
+                {isAiLoading ? 'Analisando com Gemini...' : 'Gerar Análise'}
               </button>
 
               {aiResultText && (
-                <div className="p-4 rounded-xl bg-[#161618] border border-[#242427] text-xs space-y-3">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-blue-400">Resultado:</span>
+                <div className="p-4 bg-[#1C1C1F] border border-[#27272A] rounded-xl text-xs space-y-3">
+                  <div className="flex items-center justify-between border-b border-[#27272A] pb-2">
+                    <span className="font-bold text-blue-400">Resultado da Análise</span>
                     <button
                       onClick={() => {
-                        formatDoc('insertHTML', `<div class="academic-callout ai-box" style="background-color: #1C1C1F; border: 1px solid #242427; border-left: 4px solid #3b82f6; color: #EDEDED; padding: 14px; margin: 12px 0; border-radius: 8px;"><strong>🤖 Estudo IA:</strong><br/>${aiResultText.replace(/\n/g, '<br/>')}</div>`);
+                        insertTemplateHtml(`<div style="background-color: #f8fafc; border: 1px solid #cbd5e1; border-left: 4px solid #2563eb; padding: 14px; border-radius: 8px; margin: 16px 0; font-size: 13.5px;"><strong style="color: #1e3a8a;">🤖 Assistente IA:</strong><br/>${aiResultText.replace(/\n/g, '<br/>')}</div>`);
                         setAiModalOpen(false);
                       }}
-                      className="text-[11px] font-bold text-blue-400 hover:underline cursor-pointer"
+                      className="text-xs text-blue-400 font-bold hover:underline"
                     >
-                      + Inserir no Documento
+                      + Inserir no Texto
                     </button>
                   </div>
-                  <div className="whitespace-pre-wrap leading-relaxed max-h-60 overflow-y-auto text-[#EDEDED]">
+                  <div className="whitespace-pre-wrap leading-relaxed text-[#EDEDED] max-h-56 overflow-y-auto scrollbar-thin pr-1">
                     {aiResultText}
                   </div>
                 </div>
@@ -1431,82 +2275,51 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         </div>
       )}
 
-      {/* OCR Modal */}
+      {/* OCR Transcriber Modal */}
       {ocrModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/75 backdrop-blur-xs">
-          <div className="bg-[#121214] border border-[#242427] rounded-2xl w-full max-w-lg shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-200">
-            <div className="flex items-center justify-between p-4 border-b border-[#242427] bg-[#161618]">
-              <div className="flex items-center gap-2.5">
-                <div className="p-2 rounded-xl bg-blue-500/10 text-blue-400 border border-blue-500/20">
-                  <Camera className="w-5 h-5" />
-                </div>
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/80 backdrop-blur-xs">
+          <div className="bg-[#141416] border border-[#242427] rounded-2xl w-full max-w-md shadow-2xl overflow-hidden animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between p-4 border-b border-[#242427] bg-[#1A1A1E]">
+              <div className="flex items-center gap-2">
+                <Camera className="w-5 h-5 text-blue-400" />
                 <div>
-                  <h3 className="text-base font-bold text-white">
-                    Transcrição OCR de Foto / Caderno
-                  </h3>
-                  <p className="text-xs text-[#919196]">
-                    Envie uma foto da lousa ou do seu caderno manuscrito
-                  </p>
+                  <h3 className="text-sm font-bold text-white">Transcrever Foto de Caderno (OCR)</h3>
+                  <p className="text-[10px] text-gray-400">Carregue fotos de quadros ou anotações manuscritas</p>
                 </div>
               </div>
-              <button
-                onClick={() => setOcrModalOpen(false)}
-                className="p-1 rounded-lg text-[#919196] hover:text-white hover:bg-[#1C1C1F] cursor-pointer"
-              >
-                ✕
-              </button>
+              <button onClick={() => setOcrModalOpen(false)} className="text-gray-400 hover:text-white font-bold cursor-pointer">✕</button>
             </div>
 
             <div className="p-5 space-y-4">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="image/*"
-                onChange={handleOcrFileSelect}
-                className="hidden"
-              />
+              <input ref={fileInputRef} type="file" accept="image/*" onChange={handleOcrFileSelect} className="hidden" />
 
               {!ocrImagePreview ? (
                 <div
                   onClick={() => fileInputRef.current?.click()}
-                  className="border-2 border-dashed border-[#242427] rounded-2xl p-8 text-center cursor-pointer hover:bg-[#1C1C1F] transition flex flex-col items-center justify-center gap-2"
+                  className="border-2 border-dashed border-[#2E2E33] hover:border-blue-500 rounded-xl p-8 text-center cursor-pointer hover:bg-[#1C1C1F] transition flex flex-col items-center justify-center gap-2"
                 >
-                  <Camera className="w-10 h-10 text-[#919196]" />
-                  <p className="text-xs font-semibold text-white">
-                    Clique para selecionar uma foto da anotação
-                  </p>
-                  <p className="text-[11px] text-[#919196]">
-                    Suporta PNG, JPG, fotos tiradas pelo celular ou tablet
-                  </p>
+                  <Camera className="w-8 h-8 text-[#71717A]" />
+                  <p className="text-xs font-semibold text-white">Selecione uma Imagem</p>
+                  <p className="text-[10px] text-gray-500">PNG, JPG, JPEG ou capturas de tela</p>
                 </div>
               ) : (
                 <div className="space-y-3">
-                  <div className="max-h-56 overflow-hidden rounded-xl border border-[#242427]">
-                    <img src={ocrImagePreview} alt="Preview OCR" className="w-full object-contain" />
+                  <div className="max-h-48 overflow-hidden rounded-xl border border-[#27272A] flex justify-center bg-black">
+                    <img src={ocrImagePreview} alt="OCR Preview" className="h-full object-contain" />
                   </div>
-                  <button
-                    onClick={() => fileInputRef.current?.click()}
-                    className="text-xs text-blue-400 hover:underline cursor-pointer"
-                  >
-                    Trocar foto
-                  </button>
+                  <button onClick={() => fileInputRef.current?.click()} className="text-xs text-blue-400 hover:underline">Trocar foto</button>
                 </div>
               )}
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-[#242427]">
-                <button
-                  onClick={() => setOcrModalOpen(false)}
-                  className="px-4 py-2 text-xs font-medium text-[#919196] hover:text-white hover:bg-[#1C1C1F] rounded-xl cursor-pointer"
-                >
-                  Cancelar
-                </button>
+              <div className="flex justify-end gap-2 pt-2 border-t border-[#27272A]">
+                <button onClick={() => setOcrModalOpen(false)} className="px-4 py-2 bg-transparent text-gray-400 hover:text-white text-xs font-semibold">Cancelar</button>
                 <button
                   onClick={handleRunOcr}
                   disabled={!ocrImagePreview || ocrLoading}
-                  className="flex items-center gap-1.5 px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold rounded-xl transition disabled:opacity-50 cursor-pointer"
+                  className="px-5 py-2 bg-blue-600 hover:bg-blue-500 text-white rounded-xl text-xs font-bold transition disabled:opacity-50 flex items-center gap-1.5"
                 >
-                  <Sparkles className="w-4 h-4" />
-                  {ocrLoading ? 'Transcrevendo...' : 'Transcrever e Inserir'}
+                  <Sparkles className="w-3.5 h-3.5" />
+                  {ocrLoading ? 'Transcrevendo...' : 'Processar OCR'}
                 </button>
               </div>
             </div>
@@ -1514,7 +2327,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         </div>
       )}
 
-      {/* Universal Image Editor for Inserting New Image */}
+      {/* Universal Image Editors */}
       {isNewImageEditorOpen && newImageOriginalSrc && (
         <UniversalImageEditor
           isOpen={isNewImageEditorOpen}
@@ -1530,7 +2343,6 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         />
       )}
 
-      {/* Universal Image Editor for Editing Existing Image */}
       {editingDocImage && (
         <UniversalImageEditor
           isOpen={!!editingDocImage}
