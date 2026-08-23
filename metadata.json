@@ -1,0 +1,6 @@
+{
+  "name": "Caderno Digital Universitário",
+  "description": "Central de organização acadêmica com cadernos digitais, editor Word/Canva, flashcards com repetição espaçada, mapas mentais Obsidian-like, grade horária, tarefas e assistente de estudos com IA.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

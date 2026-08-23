@@ -1,0 +1,147 @@
+@import "tailwindcss";
+
+@theme {
+  --color-primary: var(--color-primary);
+  --color-secondary: var(--color-secondary);
+  --color-button: var(--color-button);
+  --color-menu: var(--color-menu);
+  --color-icon: var(--color-icon);
+  --color-highlight: var(--color-highlight);
+  --color-text: var(--color-text);
+  --color-background: var(--color-background);
+  --color-card: var(--color-card);
+  --color-sidebar: var(--color-sidebar);
+  --color-topbar: var(--color-topbar);
+  --color-text-secondary: var(--color-text-secondary);
+  --color-border: var(--color-border);
+  --color-hover: var(--color-hover);
+  --color-active: var(--color-active);
+  --color-selected: var(--color-selected);
+  --color-error: var(--color-error);
+  --color-warning: var(--color-warning);
+  --color-success: var(--color-success);
+}
+
+@layer base {
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--color-background);
+    color: var(--color-text);
+    transition: background-color 0.2s ease, color 0.2s ease;
+  }
+}
+
+.font-serif-display {
+  font-family: 'Playfair Display', Georgia, serif;
+}
+
+.font-cinzel {
+  font-family: 'Cinzel', serif;
+}
+
+.font-handwriting {
+  font-family: 'Caveat', cursive;
+}
+
+.font-mono-code {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Elegant Scrollbars tied to active theme variables */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: var(--color-background);
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 9999px;
+  transition: background-color 0.15s ease;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-primary);
+}
+
+/* Print Rules for A4 PDF */
+@media print {
+  body {
+    background: white !important;
+    color: black !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-page {
+    box-shadow: none !important;
+    margin: 0 !important;
+    padding: 20mm !important;
+    page-break-after: always;
+  }
+}
+
+/* ==========================================
+   DYNAMIC HEX COLOR OVERRIDES FOR THEME SYSTEM
+   ========================================== */
+
+/* Background color overrides */
+.bg-\[\#0A0A0B\] {
+  background-color: var(--color-background) !important;
+}
+
+.bg-\[\#121214\] {
+  background-color: var(--color-card) !important;
+}
+
+.bg-\[\#161618\] {
+  background-color: var(--color-menu) !important;
+}
+
+.bg-\[\#1C1C1F\] {
+  background-color: var(--color-menu) !important;
+}
+
+.bg-\[\#141820\] {
+  background-color: var(--color-selected) !important;
+}
+
+/* Border and Divider overrides */
+.border-\[\#242427\] {
+  border-color: var(--color-border) !important;
+}
+
+.border-\[\#2E2E32\] {
+  border-color: var(--color-border) !important;
+}
+
+/* Text and Foreground overrides */
+.text-\[\#E2E2E2\] {
+  color: var(--color-text) !important;
+}
+
+.text-\[\#919196\] {
+  color: var(--color-text-secondary) !important;
+}
+
+.text-\[\#636366\] {
+  color: var(--color-text-secondary) !important;
+}
+
+/* Heading/Text labels element-specific white text adapts to theme */
+h1.text-white, h2.text-white, h3.text-white, h4.text-white, h5.text-white, h6.text-white, 
+p.text-white, span.text-white, div.text-white:not([class*="bg-blue-"]):not([class*="bg-emerald-"]):not([class*="bg-red-"]):not([class*="bg-purple-"]) {
+  color: var(--color-text) !important;
+}
+
+/* Hover background state overrides */
+.hover\:bg-\[\#1C1C1F\]:hover {
+  background-color: var(--color-hover) !important;
+}
+
+.hover\:bg-\[\#242427\]:hover {
+  background-color: var(--color-active) !important;
+}

@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <title>Caderno Digital Universitário | Central Acadêmica</title>
+    <meta name="description" content="Central de organização acadêmica com cadernos digitais, editor Word/Canva, flashcards e mapas mentais." />
+    <meta name="theme-color" content="#0A0A0B" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+    <meta name="apple-mobile-web-app-title" content="Caderno" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400..700&family=Cinzel:wght@500;700&family=JetBrains+Mono:wght@400;500;700&family=Playfair+Display:ital,wght@0,400..900;1,400..900&family=Plus+Jakarta+Sans:ital,wght@0,300..800;1,300..800&display=swap" rel="stylesheet" />
+  </head>
+  <body class="bg-[#0A0A0B] text-[#EDEDED] antialiased selection:bg-blue-600/30">
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+    <script>
+      if ('serviceWorker' in navigator && window.location.protocol.startsWith('http')) {
+        window.addEventListener('load', () => {
+          navigator.serviceWorker.register('/sw.js').catch((err) => {
+            console.log('SW registration skipped:', err);
+          });
+        });
+      }
+    </script>
+  </body>
+</html>
+
