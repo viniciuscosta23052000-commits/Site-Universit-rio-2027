@@ -483,18 +483,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({ onSemesterChange, on
           <Shield className="w-4 h-4 text-emerald-400" />
           Backup & Dados
         </button>
-
-        <button
-          onClick={() => setActiveTab('pwa')}
-          className={`flex items-center gap-1.5 px-4 py-2 text-xs font-semibold rounded-xl transition cursor-pointer ${
-            activeTab === 'pwa'
-              ? 'bg-[#1C1C1F] text-white shadow-xs border border-[#2E2E32]'
-              : 'text-[#919196] hover:text-white'
-          }`}
-        >
-          <Smartphone className="w-4 h-4 text-emerald-400" />
-          📱 Aplicativo PWA
-        </button>
       </div>
 
       {/* Tab 1: Profile */}
