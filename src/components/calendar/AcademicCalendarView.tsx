@@ -538,7 +538,7 @@ export const AcademicCalendarView: React.FC<AcademicCalendarViewProps> = () => {
             setEditingEvent(null);
           }}
           activeSemesterId={currentSemesterId}
-          initialEvent={editingEvent || undefined}
+          eventToEdit={editingEvent || undefined}
         />
       )}
     </div>

@@ -285,7 +285,128 @@ export const VisionMural: React.FC<VisionMuralProps> = ({ onMuralUpdated }) => {
     }
   };
 
+  const maxCards = mural.visualSettings?.maxCards || 0;
   const currentCards = mural.cards || [];
+  const displayedCards = (isEditing || maxCards === 0) ? currentCards : currentCards.slice(0, maxCards);
+
+  const renderPhraseBoard = (position: 'top' | 'bottom') => {
+    if (!(mural.phraseConfig?.visible ?? true)) return null;
+
+    const borderClass = position === 'top' 
+      ? 'border-b border-[#EAE3D5]/40 dark:border-[#242427]/60 pb-5 mb-5' 
+      : 'border-t border-[#EAE3D5]/40 dark:border-[#242427]/60 pt-5';
+
+    return (
+      <div className={`${borderClass} space-y-3`}>
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-bold text-zinc-400 dark:text-[#919196] uppercase tracking-wider">
+            Frase Ativa no Mural
+          </span>
+          {isEditing && (
+            <div className="flex items-center gap-3">
+              <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={mural.phraseConfig?.visible ?? true}
+                  onChange={(e) => updateGeneralSettings((m) => {
+                    if (!m.phraseConfig) m.phraseConfig = {};
+                    m.phraseConfig.visible = e.target.checked;
+                  })}
+                  className="accent-[#4A6B53]"
+                />
+                Exibir Frase
+              </label>
+            </div>
+          )}
+        </div>
+
+        {isEditing ? (
+          /* Inline Phrase Editor in Edit mode */
+          <div className="p-4 bg-[#FAF8F5] dark:bg-[#1C1C1F] border border-[#EAE3D5] dark:border-[#242427] rounded-2xl space-y-3.5">
+            <textarea
+              value={mural.phrase}
+              onChange={(e) => updateGeneralSettings((m) => { m.phrase = e.target.value; })}
+              placeholder="Escreva sua frase motivacional favorita..."
+              rows={2}
+              className="w-full p-3 text-xs sm:text-sm rounded-xl bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] focus:outline-none"
+            />
+
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+              {/* Color picker */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Cor do Texto</label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="color"
+                    value={mural.phraseConfig?.textColor || '#4A6B53'}
+                    onChange={(e) => updateGeneralSettings((m) => {
+                      if (!m.phraseConfig) m.phraseConfig = {};
+                      m.phraseConfig.textColor = e.target.value;
+                    })}
+                    className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-none"
+                  />
+                  <input
+                    type="text"
+                    value={mural.phraseConfig?.textColor || '#4A6B53'}
+                    onChange={(e) => updateGeneralSettings((m) => {
+                      if (!m.phraseConfig) m.phraseConfig = {};
+                      m.phraseConfig.textColor = e.target.value;
+                    })}
+                    className="flex-1 px-2.5 py-1 text-xs bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] rounded-lg"
+                  />
+                </div>
+              </div>
+
+              {/* Alignment */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Alinhamento</label>
+                <select
+                  value={mural.phraseConfig?.alignment || 'left'}
+                  onChange={(e) => updateGeneralSettings((m) => {
+                    if (!m.phraseConfig) m.phraseConfig = {};
+                    m.phraseConfig.alignment = e.target.value as any;
+                  })}
+                  className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] rounded-lg"
+                >
+                  <option value="left">Esquerda</option>
+                  <option value="center">Centralizado</option>
+                  <option value="right">Direita</option>
+                </select>
+              </div>
+
+              {/* Font Size */}
+              <div className="space-y-1">
+                <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Tamanho da Fonte</label>
+                <input
+                  type="range"
+                  min="11"
+                  max="20"
+                  value={mural.phraseConfig?.fontSize || 13}
+                  onChange={(e) => updateGeneralSettings((m) => {
+                    if (!m.phraseConfig) m.phraseConfig = {};
+                    m.phraseConfig.fontSize = parseInt(e.target.value);
+                  })}
+                  className="w-full accent-[#4A6B53]"
+                />
+              </div>
+            </div>
+          </div>
+        ) : (
+          /* Beautiful styled display quote in normal mode */
+          <div
+            className="text-xs sm:text-sm italic font-medium border-l-2 pl-3 py-1 text-zinc-500 dark:text-[#919196]"
+            style={{
+              borderLeftColor: mural.phraseConfig?.textColor || '#4A6B53',
+              textAlign: mural.phraseConfig?.alignment || 'left',
+              fontSize: mural.phraseConfig?.fontSize ? `${mural.phraseConfig.fontSize}px` : '13px',
+            }}
+          >
+            "{mural.phrase}"
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6" id="vision-mural-container">
@@ -450,6 +571,41 @@ export const VisionMural: React.FC<VisionMuralProps> = ({ onMuralUpdated }) => {
                 </select>
               </div>
 
+              {/* Quantidade de cards exibidos */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Qtde. de Cards Exibidos</label>
+                <select
+                  value={mural.visualSettings?.maxCards || 0}
+                  onChange={(e) => updateGeneralSettings((m) => {
+                    if (!m.visualSettings) m.visualSettings = {};
+                    m.visualSettings.maxCards = parseInt(e.target.value);
+                  })}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] focus:outline-none"
+                >
+                  <option value={0}>Todos os cards ({currentCards.length})</option>
+                  <option value={3}>Limitar a 3 cards</option>
+                  <option value={6}>Limitar a 6 cards</option>
+                  <option value={9}>Limitar a 9 cards</option>
+                  <option value={12}>Limitar a 12 cards</option>
+                </select>
+              </div>
+
+              {/* Ordem dos elementos (Frase no topo ou rodapé) */}
+              <div className="space-y-1.5">
+                <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-wider block">Ordem dos Elementos</label>
+                <select
+                  value={mural.phraseConfig?.phrasePosition || 'bottom'}
+                  onChange={(e) => updateGeneralSettings((m) => {
+                    if (!m.phraseConfig) m.phraseConfig = {};
+                    m.phraseConfig.phrasePosition = e.target.value as any;
+                  })}
+                  className="w-full px-3 py-2 text-xs rounded-xl bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] focus:outline-none"
+                >
+                  <option value="bottom">Frase Motivacional no Rodapé</option>
+                  <option value="top">Frase Motivacional no Topo</option>
+                </select>
+              </div>
+
               {/* Dark Overlay darkness slider */}
               {mural.visualSettings?.cardStyle !== 'polaroid' && (
                 <div className="space-y-1.5 sm:col-span-2">
@@ -476,8 +632,10 @@ export const VisionMural: React.FC<VisionMuralProps> = ({ onMuralUpdated }) => {
         )}
 
         {/* --- DYNAMIC MOSAIC / GRID OF VISION CARDS --- */}
+        {mural.phraseConfig?.phrasePosition === 'top' && renderPhraseBoard('top')}
+
         <div className={`grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 ${getSpacingClass(mural.visualSettings?.spacing)}`}>
-          {currentCards.map((card, index) => {
+          {displayedCards.map((card, index) => {
             const isPolaroid = mural.visualSettings?.cardStyle === 'polaroid';
             return (
               <div
@@ -635,116 +793,7 @@ export const VisionMural: React.FC<VisionMuralProps> = ({ onMuralUpdated }) => {
         </div>
 
         {/* --- MOTIVATIONAL PHRASE BOARD --- */}
-        {(mural.phraseConfig?.visible ?? true) && (
-          <div className="border-t border-[#EAE3D5]/40 dark:border-[#242427]/60 pt-5 space-y-3">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-bold text-zinc-400 dark:text-[#919196] uppercase tracking-wider">
-                Frase Ativa no Mural
-              </span>
-              {isEditing && (
-                <div className="flex items-center gap-3">
-                  <label className="text-[10px] font-bold text-zinc-500 uppercase tracking-widest flex items-center gap-1 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={mural.phraseConfig?.visible ?? true}
-                      onChange={(e) => updateGeneralSettings((m) => {
-                        if (!m.phraseConfig) m.phraseConfig = {};
-                        m.phraseConfig.visible = e.target.checked;
-                      })}
-                      className="accent-[#4A6B53]"
-                    />
-                    Exibir Frase
-                  </label>
-                </div>
-              )}
-            </div>
-
-            {isEditing ? (
-              /* Inline Phrase Editor in Edit mode */
-              <div className="p-4 bg-[#FAF8F5] dark:bg-[#1C1C1F] border border-[#EAE3D5] dark:border-[#242427] rounded-2xl space-y-3.5">
-                <textarea
-                  value={mural.phrase}
-                  onChange={(e) => updateGeneralSettings((m) => { m.phrase = e.target.value; })}
-                  placeholder="Escreva sua frase motivacional favorita..."
-                  rows={2}
-                  className="w-full p-3 text-xs sm:text-sm rounded-xl bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] focus:outline-none"
-                />
-
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {/* Color picker */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Cor do Texto</label>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="color"
-                        value={mural.phraseConfig?.textColor || '#4A6B53'}
-                        onChange={(e) => updateGeneralSettings((m) => {
-                          if (!m.phraseConfig) m.phraseConfig = {};
-                          m.phraseConfig.textColor = e.target.value;
-                        })}
-                        className="w-8 h-8 rounded-lg cursor-pointer bg-transparent border-none"
-                      />
-                      <input
-                        type="text"
-                        value={mural.phraseConfig?.textColor || '#4A6B53'}
-                        onChange={(e) => updateGeneralSettings((m) => {
-                          if (!m.phraseConfig) m.phraseConfig = {};
-                          m.phraseConfig.textColor = e.target.value;
-                        })}
-                        className="flex-1 px-2.5 py-1 text-xs bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] rounded-lg"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Alignment */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Alinhamento</label>
-                    <select
-                      value={mural.phraseConfig?.alignment || 'left'}
-                      onChange={(e) => updateGeneralSettings((m) => {
-                        if (!m.phraseConfig) m.phraseConfig = {};
-                        m.phraseConfig.alignment = e.target.value as any;
-                      })}
-                      className="w-full px-2.5 py-1.5 text-xs bg-white dark:bg-[#121214] text-zinc-800 dark:text-white border border-[#EAE3D5] dark:border-[#242427] rounded-lg"
-                    >
-                      <option value="left">Esquerda</option>
-                      <option value="center">Centralizado</option>
-                      <option value="right">Direita</option>
-                    </select>
-                  </div>
-
-                  {/* Font Size */}
-                  <div className="space-y-1">
-                    <label className="text-[9px] font-bold text-zinc-500 uppercase tracking-wider block">Tamanho da Fonte</label>
-                    <input
-                      type="range"
-                      min="11"
-                      max="20"
-                      value={mural.phraseConfig?.fontSize || 13}
-                      onChange={(e) => updateGeneralSettings((m) => {
-                        if (!m.phraseConfig) m.phraseConfig = {};
-                        m.phraseConfig.fontSize = parseInt(e.target.value);
-                      })}
-                      className="w-full accent-[#4A6B53]"
-                    />
-                  </div>
-                </div>
-              </div>
-            ) : (
-              /* Beautiful styled display quote in normal mode */
-              <div
-                className="text-xs sm:text-sm italic font-medium border-l-2 pl-3 py-1 text-zinc-500 dark:text-[#919196]"
-                style={{
-                  borderLeftColor: mural.phraseConfig?.textColor || '#4A6B53',
-                  textAlign: mural.phraseConfig?.alignment || 'left',
-                  fontSize: mural.phraseConfig?.fontSize ? `${mural.phraseConfig.fontSize}px` : '13px',
-                }}
-              >
-                "{mural.phrase}"
-              </div>
-            )}
-          </div>
-        )}
+        {mural.phraseConfig?.phrasePosition !== 'top' && renderPhraseBoard('bottom')}
       </div>
 
       {/* ===================== CARD DETAILED MODAL EDITOR ===================== */}

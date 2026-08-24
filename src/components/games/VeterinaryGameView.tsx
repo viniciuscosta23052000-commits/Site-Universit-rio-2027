@@ -40,7 +40,7 @@ export interface CharacterConfig {
   hair: 'short' | 'long' | 'curly' | 'bun';
   hairColor: string;
   clothing: 'lab_coat' | 'green_scrubs' | 'blue_scrubs' | 'safari';
-  accessory: 'stethoscope' | 'goggles' | 'clipboard' | 'none';
+  accessory: 'stethoscope' | 'goggles' | 'clipboard' | 'none' | 'glasses' | 'cap';
   skinColor: string;
   [key: string]: any;
 }

@@ -519,6 +519,7 @@ export interface VisionMuralConfig {
     fontSize?: number;
     alignment?: 'left' | 'center' | 'right';
     styleType?: string;
+    phrasePosition?: 'top' | 'bottom';
   };
   cards: VisionCard[];
   visualSettings?: {
@@ -528,6 +529,7 @@ export interface VisionMuralConfig {
     spacing?: 'tight' | 'normal' | 'loose';
     textColor?: string;
     overlayOpacity?: number; // e.g. 60 for 60% overlay
+    maxCards?: number;
   };
 }
 
