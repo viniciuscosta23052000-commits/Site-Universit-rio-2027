@@ -253,10 +253,17 @@ export const MusicPlayerWidget: React.FC = () => {
             <ChevronUp className="w-3.5 h-3.5 text-[#919196] transition-transform" />
           </button>
         </div>
-      ) : (
-        /* Expanded Floating Music & Sound Panel */
-        <div className="w-80 sm:w-[420px] bg-[#121214] border border-[#242427] rounded-2xl shadow-2xl overflow-hidden animate-in fade-in slide-in-from-bottom-4 duration-200">
-          {/* Header */}
+      ) : null}
+
+      {/* Expanded Floating Music & Sound Panel (Always mounted for background playback) */}
+      <div 
+        className={`w-80 sm:w-[420px] bg-[#121214] border border-[#242427] rounded-2xl shadow-2xl overflow-hidden transition-all duration-200 ${
+          isExpanded 
+            ? 'opacity-100 scale-100 pointer-events-auto block animate-in fade-in slide-in-from-bottom-4 duration-150' 
+            : 'opacity-0 scale-95 pointer-events-none absolute w-0 h-0 overflow-hidden select-none -z-50 border-none'
+        }`}
+      >
+        {/* Header */}
           <div className="p-3 bg-[#1C1C1F] border-b border-[#242427] flex items-center justify-between">
             <div className="flex items-center gap-2">
               <GripHorizontal className="w-4 h-4 text-[#919196]" />
@@ -518,7 +525,6 @@ export const MusicPlayerWidget: React.FC = () => {
             )}
           </div>
         </div>
-      )}
-    </div>
+      </div>
   );
 };

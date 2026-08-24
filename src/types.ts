@@ -206,7 +206,7 @@ export type LessonTemplateType = 'traditional' | 'cornell' | 'review' | 'scienti
 
 export interface CanvasElement {
   id: string;
-  type: 'text' | 'image' | 'callout' | 'shape' | 'arrow' | 'sticker' | 'formula';
+  type: 'text' | 'image' | 'callout' | 'shape' | 'arrow' | 'sticker' | 'formula' | 'postit' | 'flashcard';
   x: number;
   y: number;
   width: number;

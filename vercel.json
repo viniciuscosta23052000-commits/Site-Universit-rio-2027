@@ -4,6 +4,10 @@
     {
       "source": "/api/:path*",
       "destination": "/api"
+    },
+    {
+      "source": "/((?!api|assets|public|favicon.ico).*)/?",
+      "destination": "/index.html"
     }
   ]
 }
