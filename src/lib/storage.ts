@@ -425,13 +425,66 @@ export const INITIAL_DATABASE: AppDatabase = {
       disciplineId: 'disc-1',
       name: 'Apostila_Fisiologia_Cardiovascular_2026.pdf',
       type: 'pdf',
-      url: 'https://example.com/apostila.pdf',
-      size: '3.4 MB',
+      url: 'data:application/pdf;base64,JVBERi0xLjQKMSAwIG9iagogIDw8IC9UeXBlIC9DYXRhbG9nCiAgICAgL1BhZ2VzIDIgMCBSCiAgPj4KZW5kb2JqCjIgMCBvYmoKICA8PCAvVHlwZSAvUGFnZXMKICAgICAvS2lkcyBbMyAwIFJdCiAgICAgL0NvdW50IDEKICA+PgplbmRvYmoKMyAwIG9iagogIDw8IC9UeXBlIC9QYWdlCiAgICAgL1BhcmVudCAyIDAgUgogICAgIC9SZXNvdXJjZXMgPDwKICAgICAgIC9Gb250IDw8CiAgICAgICAgIC9GMSA0IDAgUgogICAgICAgPj4KICAgICA+PgogICAgIC9NZWRpYUJveCBbMCAwIDU5NSA4NDJdCiAgICAgL0NvbnRlbnRzIDUgMCBSCiAgPj4KZW5kb2JqCjQgMCBvYmoKICA8PCAvVHlwZSAvRm9udAogICAgIC9TdWJ0eXBlIC9UeXBlMQogICAgIC9CYXNlRm9udCAvSGVsdmV0aWNhCiAgPj4KZW5kb2JqCjUgMCBvYmoKICA8PCAvTGVuZ3RoIDY0ID4+CnN0cmVhbQpCVAovRjEgMjQgVGYKNzAgNzIwIFRkCihBcG9zdGlsYSBkZSBGaXNpb2xvZ2lhIENhcmRpb3Zhc2N1bGFyIC0gQ2FkZXJubyBEaWdpdGFsKSBUagpFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAK0MDAwMDAwMDAxNSAwMDAwMCBuIAowMDAwMDAwMDY4IDAwMDAwIG4gCjAwMDAwMDAxMjUgMDAwMDAgbiAKMDAwMDAwMDIzMCAwMDAwMCBuIAowMDAwMDAwMzEwIDAwMDAwIG4gCnRyYWlsZXIKICA8PCAvU2l6ZSA2CiAgICAgL1Jvb3QgMSAwIFIKICA+PgpzdGFydHhyZWYKNDIyCiUlRU9G',
+      size: '35 KB',
       createdAt: '2026-08-20T10:00:00.000Z',
       updatedAt: '2026-08-20T10:00:00.000Z',
     },
   ],
   generalNotes: [],
+  visionMural: {
+    title: "Mural de Visão & Metas",
+    subtitle: "Meu Painel Visual de Objetivos Pessoais e Acadêmicos",
+    phrase: "O hábito diário de estudar constrói a carreira dos seus sonhos.",
+    phraseConfig: {
+      visible: true,
+      textColor: "#4A6B53",
+      fontFamily: "Plus Jakarta Sans",
+      fontSize: 13,
+      alignment: "left",
+      styleType: "minimalist"
+    },
+    cards: [
+      {
+        id: "card-vision-1",
+        imageUrl: "https://images.unsplash.com/photo-1516321318423-f06f85e504b3?w=800&auto=format&fit=crop",
+        title: "Mesa de Estudos Minimalista & Foco",
+        fontSize: 14,
+        fontStyle: "font-sans",
+        alignment: "left",
+        subtitle: "Rotina & Foco",
+        category: "Estudos",
+        description: "Organizar meu espaço de estudos diariamente para focar no aprendizado.",
+        relatedGoal: "Manter rotina de 4 horas de estudo diários",
+        dueDate: "2026-12-31",
+        status: "pending",
+        order: 0
+      },
+      {
+        id: "card-vision-2",
+        imageUrl: "https://images.unsplash.com/photo-1530497610245-94d3c16cda28?w=800&auto=format&fit=crop",
+        title: "Clínica e Diagnóstico Veterinário",
+        fontSize: 14,
+        fontStyle: "font-sans",
+        alignment: "left",
+        subtitle: "Carreira dos Sonhos",
+        category: "Carreira",
+        description: "Estudar anatomia e patologia clínica para excelência profissional na veterinária.",
+        relatedGoal: "Estágio em clínica de pequenos animais",
+        dueDate: "2026-11-30",
+        status: "pending",
+        order: 1
+      }
+    ],
+    visualSettings: {
+      cardStyle: "minimalist",
+      borderRadius: "2xl",
+      cardSize: "medium",
+      spacing: "normal",
+      textColor: "#FFFFFF",
+      overlayOpacity: 80
+    }
+  },
   lastSavedAt: new Date().toISOString(),
 };
 
@@ -454,6 +507,23 @@ export class StorageService {
       if (json) {
         const parsed = JSON.parse(json) as AppDatabase;
         if (!parsed.files) parsed.files = [];
+
+        // Migrate any dummy example.com pdf to our local base64 version for real preview usage
+        if (parsed.files.length === 0 || (parsed.files.length === 1 && parsed.files[0].url === 'https://example.com/apostila.pdf')) {
+          parsed.files = [
+            {
+              id: 'file-1',
+              semesterId: INITIAL_SEMESTER_ID,
+              disciplineId: 'disc-1',
+              name: 'Apostila_Fisiologia_Cardiovascular_2026.pdf',
+              type: 'pdf',
+              url: 'data:application/pdf;base64,JVBERi0xLjQKMSAwIG9iagogIDw8IC9UeXBlIC9DYXRhbG9nCiAgICAgL1BhZ2VzIDIgMCBSCiAgPj4KZW5kb2JqCjIgMCBvYmoKICA8PCAvVHlwZSAvUGFnZXMKICAgICAvS2lkcyBbMyAwIFJdCiAgICAgL0NvdW50IDEKICA+PgplbmRvYmoKMyAwIG9iagogIDw8IC9UeXBlIC9QYWdlCiAgICAgL1BhcmVudCAyIDAgUgogICAgIC9SZXNvdXJjZXMgPDwKICAgICAgIC9Gb250IDw8CiAgICAgICAgIC9GMSA0IDAgUgogICAgICAgPj4KICAgICA+PgogICAgIC9NZWRpYUJveCBbMCAwIDU5NSA4NDJdCiAgICAgL0NvbnRlbnRzIDUgMCBSCiAgPj4KZW5kb2JqCjQgMCBvYmoKICA8PCAvVHlwZSAvRm9udAogICAgIC9TdWJ0eXBlIC9UeXBlMQogICAgIC9CYXNlRm9udCAvSGVsdmV0aWNhCiAgPj4KZW5kb2JqCjUgMCBvYmoKICA8PCAvTGVuZ3RoIDY0ID4+CnN0cmVhbQpCVAovRjEgMjQgVGYKNzAgNzIwIFRkCihBcG9zdGlsYSBkZSBGaXNpb2xvZ2lhIENhcmRpb3Zhc2N1bGFyIC0gQ2FkZXJubyBEaWdpdGFsKSBUagpFVAplbmRzdHJlYW0KZW5kb2JqCnhyZWYKMCA2CjAwMDAwMDAwMDAgNjU1MzUgZiAK0MDAwMDAwMDAxNSAwMDAwMCBuIAowMDAwMDAwMDY4IDAwMDAwIG4gCjAwMDAwMDAxMjUgMDAwMDAgbiAKMDAwMDAwMDIzMCAwMDAwMCBuIAowMDAwMDAwMzEwIDAwMDAwIG4gCnRyYWlsZXIKICA8PCAvU2l6ZSA2CiAgICAgL1Jvb3QgMSAwIFIKICA+PgpzdGFydHhyZWYKNDIyCiUlRU9G',
+              size: '35 KB',
+              createdAt: '2026-08-20T10:00:00.000Z',
+              updatedAt: '2026-08-20T10:00:00.000Z',
+            }
+          ];
+        }
         
         // Ensure new structures are present
         if (!parsed.profile.themeMode) parsed.profile.themeMode = 'dark';
@@ -520,6 +590,9 @@ export class StorageService {
             selectedPhraseId: 'phr-1',
             lastSelectedDate: new Date().toISOString().split('T')[0],
           };
+        }
+        if (!parsed.visionMural) {
+          parsed.visionMural = JSON.parse(JSON.stringify(INITIAL_DATABASE.visionMural));
         }
 
         this.cachedData = parsed;

@@ -19,11 +19,19 @@ export interface CustomThemeColors {
 }
 
 export interface WidgetConfig {
-  id: string; // 'profile_banner' | 'stats' | 'priority_tasks' | 'schedule' | 'recent_lessons' | 'upcoming_exams' | 'disciplines' | 'motivation_widget'
+  id: string; // 'profile_banner' | 'stats' | 'priority_tasks' | 'schedule' | 'recent_lessons' | 'upcoming_exams' | 'disciplines' | 'motivation_widget' | etc.
   title: string;
   visible: boolean;
   size: 'sm' | 'md' | 'lg' | 'full'; // column width spanning
   position: number;
+  style?: 'minimalist' | 'bordered' | 'glass' | 'pastel' | 'academic';
+  transparency?: 'none' | 'subtle' | 'high' | 'full';
+  borders?: 'none' | 'thin' | 'thick';
+  borderRadius?: 'none' | 'md' | 'lg' | '2xl' | '3xl';
+  themeMode?: 'auto' | 'light' | 'dark';
+  customTitle?: string;
+  customIcon?: string;
+  settings?: Record<string, any>;
 }
 
 export interface UserProfile {
@@ -397,6 +405,7 @@ export interface AcademicFile {
   size: string;
   createdAt: string;
   updatedAt: string;
+  annotations?: string; // Serialized JSON string containing PDF page-by-page annotations
 }
 
 export interface MusicTrack {
@@ -479,7 +488,47 @@ export interface AppDatabase {
     selectedPhraseId?: string;
     lastSelectedDate?: string;
   };
+  visionMural?: VisionMuralConfig;
   lastSavedAt: string;
+}
+
+export interface VisionCard {
+  id: string;
+  imageUrl: string;
+  title: string;
+  fontSize?: number; // e.g. 14, 16
+  fontStyle?: string; // e.g. 'font-serif', 'font-sans', 'font-mono'
+  alignment?: 'left' | 'center' | 'right';
+  subtitle: string;
+  category: string;
+  description?: string;
+  relatedGoal?: string;
+  dueDate?: string;
+  status?: 'pending' | 'completed';
+  order: number;
+}
+
+export interface VisionMuralConfig {
+  title: string;
+  subtitle?: string;
+  phrase: string;
+  phraseConfig?: {
+    visible?: boolean;
+    textColor?: string;
+    fontFamily?: string;
+    fontSize?: number;
+    alignment?: 'left' | 'center' | 'right';
+    styleType?: string;
+  };
+  cards: VisionCard[];
+  visualSettings?: {
+    cardStyle?: 'minimalist' | 'bordered' | 'glass' | 'polaroid';
+    borderRadius?: 'none' | 'sm' | 'md' | 'lg' | 'xl' | '2xl' | '3xl';
+    cardSize?: 'small' | 'medium' | 'large';
+    spacing?: 'tight' | 'normal' | 'loose';
+    textColor?: string;
+    overlayOpacity?: number; // e.g. 60 for 60% overlay
+  };
 }
 
 export type AcademicDatabase = AppDatabase;

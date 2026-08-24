@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { StorageService } from '../../lib/storage';
 import { MotivationPhoto, MotivationAlbum, MotivationPhrase, CombinedMotivationCard, UserProfile } from '../../types';
 import { UniversalImageEditor, ImageEditParams, QuoteConfig } from '../editor/UniversalImageEditor';
+import { VisionMural } from './VisionMural';
 import {
   Sparkles,
   Camera,
@@ -404,6 +405,9 @@ export const MotivationView: React.FC<MotivationViewProps> = ({ onWallpaperChang
       {/* --------------------- TAB 1: MURAL --------------------- */}
       {activeTab === 'mural' && (
         <div className="space-y-6">
+          {/* Custom Editable Vision & Goals Mural */}
+          <VisionMural />
+
           {/* Wallpaper Controls Widget */}
           {profile.dashboardWallpaperUrl && (
             <div className="p-4 rounded-xl bg-blue-950/20 border border-blue-500/20 flex flex-col sm:flex-row items-center justify-between gap-4">

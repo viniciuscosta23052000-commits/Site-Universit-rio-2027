@@ -1,6 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AcademicFile, Discipline } from '../../types';
 import { StorageService } from '../../lib/storage';
+import { PdfAnnotator } from './PdfAnnotator';
 import {
   Folder,
   File,
@@ -18,6 +19,9 @@ import {
   Layers,
   Calendar,
   X,
+  Edit2,
+  Copy,
+  Check,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -26,8 +30,15 @@ interface FilesManagerViewProps {
 }
 
 export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLessonWithOCR }) => {
-  const db = StorageService.getDatabase();
+  const [db, setDb] = useState(() => StorageService.getDatabase());
   const currentSemesterId = db.profile.activeSemesterId;
+
+  useEffect(() => {
+    const unsubscribe = StorageService.subscribe((newDb) => {
+      setDb(newDb);
+    });
+    return unsubscribe;
+  }, []);
 
   const [filterType, setFilterType] = useState<'all' | 'pdf' | 'image' | 'doc' | 'audio'>('all');
   const [selectedDisciplineId, setSelectedDisciplineId] = useState<string>('');
@@ -42,6 +53,11 @@ export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLesson
   const [fileDisciplineId, setFileDisciplineId] = useState('');
   const [ocrLoading, setOcrLoading] = useState(false);
 
+  // PDF Editor & Rename states
+  const [activePdfFile, setActivePdfFile] = useState<AcademicFile | null>(null);
+  const [renamingFileId, setRenamingFileId] = useState<string | null>(null);
+  const [renamingName, setRenamingName] = useState('');
+
   const files = db.files.filter((f) => f.semesterId === currentSemesterId).filter((f) => {
     if (selectedDisciplineId && f.disciplineId !== selectedDisciplineId) return false;
     if (filterType !== 'all' && f.type !== filterType) return false;
@@ -53,14 +69,26 @@ export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLesson
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (file.size > 3.5 * 1024 * 1024) {
+      alert('Para garantir alto desempenho e respeitar os limites de armazenamento (localStorage) do seu navegador, o tamanho máximo permitido por arquivo é de 3.5 MB. Por favor, otimize ou faça upload de um arquivo menor.');
+      e.target.value = '';
+      return;
+    }
+
     setFileName(file.name);
     const sizeInMb = (file.size / (1024 * 1024)).toFixed(1) + ' MB';
     setFileSize(sizeInMb);
 
-    if (file.type.startsWith('image/')) setFileType('image');
-    else if (file.type === 'application/pdf') setFileType('pdf');
-    else if (file.type.startsWith('audio/')) setFileType('audio');
-    else setFileType('doc');
+    const ext = file.name.split('.').pop()?.toLowerCase();
+    if (ext === 'pdf' || file.type === 'application/pdf') {
+      setFileType('pdf');
+    } else if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext || '')) {
+      setFileType('image');
+    } else if (file.type.startsWith('audio/') || ['mp3', 'wav', 'm4a', 'ogg'].includes(ext || '')) {
+      setFileType('audio');
+    } else {
+      setFileType('doc');
+    }
 
     const reader = new FileReader();
     reader.onload = (loadEv) => {
@@ -100,6 +128,39 @@ export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLesson
         draft.files = draft.files.filter((f) => f.id !== fileId);
       });
     }
+  };
+
+  const handleRenameFile = (fileId: string) => {
+    if (!renamingName.trim()) return;
+    StorageService.update((draft) => {
+      const target = draft.files.find((f) => f.id === fileId);
+      if (target) {
+        target.name = renamingName.trim();
+        target.updatedAt = new Date().toISOString();
+      }
+    });
+    setRenamingFileId(null);
+    setRenamingName('');
+  };
+
+  const handleDuplicateFile = (file: AcademicFile) => {
+    const originalName = file.name;
+    const extensionIndex = originalName.lastIndexOf('.');
+    const baseName = extensionIndex !== -1 ? originalName.slice(0, extensionIndex) : originalName;
+    const extension = extensionIndex !== -1 ? originalName.slice(extensionIndex) : '';
+
+    const newFile: AcademicFile = {
+      ...file,
+      id: `file-dup-${Date.now()}`,
+      name: `${baseName}_Copia${extension}`,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+
+    StorageService.update((draft) => {
+      draft.files.push(newFile);
+    });
+    confetti({ particleCount: 30, spread: 40 });
   };
 
   const handleRunOCROnFile = async (file: AcademicFile) => {
@@ -270,55 +331,151 @@ export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLesson
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           {files.map((file) => {
             const discipline = db.disciplines.find((d) => d.id === file.disciplineId);
+            const isPdf = file.type === 'pdf';
+            const hasAnnotations = isPdf && file.annotations && JSON.parse(file.annotations).length > 0;
 
             return (
               <div
                 key={file.id}
-                className="p-4 rounded-2xl bg-[#121214] border border-[#242427] hover:border-[#3A3A3E] transition flex flex-col justify-between space-y-3 group"
+                className="p-4 rounded-2xl bg-[#121214] border border-[#242427] hover:border-[#3A3A3E] transition flex flex-col justify-between space-y-4 group relative"
               >
                 <div className="flex items-start gap-3">
                   <div className="p-3 rounded-xl bg-[#1C1C1F] border border-[#242427] shrink-0">
                     {getIconForType(file.type)}
                   </div>
                   <div className="flex-1 min-w-0">
-                    {discipline && (
-                      <span
-                        className="px-2 py-0.5 rounded text-[9px] font-bold text-white uppercase tracking-wider inline-block mb-1"
-                        style={{ backgroundColor: discipline.color }}
-                      >
-                        {discipline.name}
-                      </span>
+                    <div className="flex items-center justify-between gap-2 mb-1">
+                      {discipline ? (
+                        <span
+                          className="px-2 py-0.5 rounded text-[9px] font-bold text-white uppercase tracking-wider inline-block"
+                          style={{ backgroundColor: discipline.color }}
+                        >
+                          {discipline.name}
+                        </span>
+                      ) : (
+                        <span className="px-2 py-0.5 rounded text-[9px] font-bold text-[#919196] bg-[#1C1C1F] uppercase tracking-wider inline-block">
+                          Geral
+                        </span>
+                      )}
+                      {hasAnnotations && (
+                        <span className="px-1.5 py-0.5 rounded text-[8px] font-extrabold text-rose-400 bg-rose-500/10 border border-rose-500/20 uppercase tracking-widest animate-pulse">
+                          Anotado
+                        </span>
+                      )}
+                    </div>
+
+                    {renamingFileId === file.id ? (
+                      <div className="flex items-center gap-1 mt-1">
+                        <input
+                          type="text"
+                          value={renamingName}
+                          onChange={(e) => setRenamingName(e.target.value)}
+                          className="px-2 py-1 text-xs rounded border border-blue-500 bg-[#1C1C1F] text-white focus:outline-none w-full"
+                          autoFocus
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') handleRenameFile(file.id);
+                            else if (e.key === 'Escape') setRenamingFileId(null);
+                          }}
+                        />
+                        <button
+                          onClick={() => handleRenameFile(file.id)}
+                          className="p-1 rounded bg-green-600 hover:bg-green-500 text-white transition cursor-pointer"
+                          title="Salvar"
+                        >
+                          <Check className="w-3 h-3" />
+                        </button>
+                        <button
+                          onClick={() => setRenamingFileId(null)}
+                          className="p-1 rounded bg-[#242427] hover:bg-red-900/40 text-[#919196] hover:text-white transition cursor-pointer"
+                          title="Cancelar"
+                        >
+                          <X className="w-3 h-3" />
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-between gap-1 group/title">
+                        <h4 className="font-semibold text-xs text-white truncate max-w-[85%]">
+                          {file.name}
+                        </h4>
+                        <button
+                          onClick={() => {
+                            setRenamingFileId(file.id);
+                            setRenamingName(file.name);
+                          }}
+                          className="text-[#919196] hover:text-white p-0.5 rounded opacity-0 group-hover/title:opacity-100 transition cursor-pointer"
+                          title="Renomear arquivo"
+                        >
+                          <Edit2 className="w-3 h-3" />
+                        </button>
+                      </div>
                     )}
-                    <h4 className="font-semibold text-xs text-white truncate">
-                      {file.name}
-                    </h4>
-                    <p className="text-[11px] text-[#919196] mt-0.5">
-                      {file.size} • {file.createdAt.split('T')[0]}
+
+                    <p className="text-[10px] text-[#636366] mt-1">
+                      Tamanho: {file.size}
+                    </p>
+                    <p className="text-[10px] text-[#919196] mt-0.5">
+                      Última edição: {new Date(file.updatedAt || file.createdAt).toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                      })}
                     </p>
                   </div>
                 </div>
 
+                {isPdf && (
+                  <button
+                    onClick={() => setActivePdfFile(file)}
+                    className="w-full flex items-center justify-center gap-2 py-2 bg-rose-600/10 hover:bg-rose-600 text-rose-400 hover:text-white text-xs font-bold rounded-xl border border-rose-500/20 hover:border-transparent transition duration-200 cursor-pointer shadow-sm hover:shadow-md"
+                  >
+                    <FileText className="w-4 h-4" />
+                    Abrir e Anotar PDF
+                  </button>
+                )}
+
                 {/* File actions */}
                 <div className="pt-2 border-t border-[#242427] flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex items-center gap-1">
                     {file.type === 'image' && (
                       <button
                         onClick={() => handleRunOCROnFile(file)}
                         disabled={ocrLoading}
-                        className="flex items-center gap-1 px-2.5 py-1 rounded-lg bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[10px] font-bold hover:bg-blue-500/20 transition cursor-pointer"
+                        className="flex items-center gap-1 px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 text-[9px] font-bold hover:bg-blue-500/20 transition cursor-pointer mr-1"
                         title="Transcrever texto e notas manuscritas com IA"
                       >
-                        <Sparkles className="w-3 h-3" />
-                        OCR com IA
+                        <Sparkles className="w-2.5 h-2.5" />
+                        OCR IA
                       </button>
                     )}
+
+                    <button
+                      onClick={() => {
+                        setRenamingFileId(file.id);
+                        setRenamingName(file.name);
+                      }}
+                      className="p-1.5 text-[#919196] hover:text-white rounded-lg hover:bg-[#1C1C1F] transition cursor-pointer"
+                      title="Renomear"
+                    >
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+
+                    <button
+                      onClick={() => handleDuplicateFile(file)}
+                      className="p-1.5 text-[#919196] hover:text-white rounded-lg hover:bg-[#1C1C1F] transition cursor-pointer"
+                      title="Duplicar"
+                    >
+                      <Copy className="w-3.5 h-3.5" />
+                    </button>
+
                     <a
                       href={file.url}
                       download={file.name}
                       target="_blank"
                       rel="noreferrer"
-                      className="p-1.5 text-[#919196] hover:text-white rounded-lg hover:bg-[#1C1C1F] transition"
-                      title="Download"
+                      className="p-1.5 text-[#919196] hover:text-white rounded-lg hover:bg-[#1C1C1F] transition cursor-pointer"
+                      title={isPdf ? "Baixar PDF Original" : "Download original"}
                     >
                       <Download className="w-3.5 h-3.5" />
                     </a>
@@ -326,7 +483,7 @@ export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLesson
 
                   <button
                     onClick={() => handleDeleteFile(file.id)}
-                    className="p-1.5 text-[#919196] hover:text-red-400 hover:bg-[#1C1C1F] rounded-lg transition opacity-0 group-hover:opacity-100 cursor-pointer"
+                    className="p-1.5 text-[#919196] hover:text-red-400 hover:bg-red-500/10 rounded-lg transition opacity-0 group-hover:opacity-100 cursor-pointer"
                     title="Excluir arquivo"
                   >
                     <Trash2 className="w-3.5 h-3.5" />
@@ -384,6 +541,22 @@ export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLesson
 
                   <div>
                     <label className="block text-xs font-semibold uppercase text-[#919196] mb-1">
+                      Tipo de Arquivo (Para visualização)
+                    </label>
+                    <select
+                      value={fileType}
+                      onChange={(e) => setFileType(e.target.value as any)}
+                      className="w-full px-3 py-2 rounded-xl border border-[#242427] text-xs bg-[#1C1C1F] text-white focus:outline-none focus:border-blue-500"
+                    >
+                      <option value="pdf">Documento PDF (Editável/Anotável)</option>
+                      <option value="image">Imagem (Suporta Transcrição OCR)</option>
+                      <option value="doc">Documento / Slide / Outros</option>
+                      <option value="audio">Áudio (Gravação/MP3)</option>
+                    </select>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase text-[#919196] mb-1">
                       Vincular à Disciplina
                     </label>
                     <select
@@ -420,6 +593,13 @@ export const FilesManagerView: React.FC<FilesManagerViewProps> = ({ onOpenLesson
             </div>
           </div>
         </div>
+      )}
+
+      {activePdfFile && (
+        <PdfAnnotator
+          file={activePdfFile}
+          onClose={() => setActivePdfFile(null)}
+        />
       )}
     </div>
   );
