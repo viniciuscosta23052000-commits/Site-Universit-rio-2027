@@ -19,6 +19,7 @@ import { PwaService } from './lib/pwa';
 import { PomodoroView } from './components/pomodoro/PomodoroView';
 import { FloatingPomodoro } from './components/pomodoro/FloatingPomodoro';
 import { BoletimView } from './components/semesters/BoletimView';
+import { VeterinaryGameView } from './components/games/VeterinaryGameView';
 import confetti from 'canvas-confetti';
 
 // Widgets & Modals
@@ -52,6 +53,7 @@ import {
   AlertTriangle,
   Timer,
   LogOut,
+  Gamepad2,
 } from 'lucide-react';
 
 export type ActiveTab =
@@ -67,6 +69,7 @@ export type ActiveTab =
   | 'files'
   | 'settings'
   | 'motivation'
+  | 'games'
   | 'pomodoro';
 
 export default function App() {
@@ -364,6 +367,11 @@ export default function App() {
       id: 'flashcards',
       label: 'Flashcards Leitner',
       icon: <Brain className="w-4 h-4" />,
+    },
+    {
+      id: 'games',
+      label: 'Jogos Educativos',
+      icon: <Gamepad2 className="w-4 h-4 text-emerald-400" />,
     },
     { id: 'mindmaps', label: 'Mapas Mentais', icon: <Network className="w-4 h-4" /> },
     { id: 'files', label: 'Arquivos & PDFs', icon: <FolderOpen className="w-4 h-4" /> },
@@ -750,6 +758,10 @@ export default function App() {
               onSemesterChange={() => setDb(StorageService.getDatabase())}
               initialTab={initialSettingsTab}
             />
+          )}
+
+          {activeTab === 'games' && (
+            <VeterinaryGameView />
           )}
         </main>
       </div>

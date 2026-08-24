@@ -5,6 +5,7 @@ import { exportLessonToDocx } from '../../lib/docxExport';
 import { exportToPdf } from '../../lib/pdfExport';
 import { UniversalImageEditor, ImageEditParams } from './UniversalImageEditor';
 import { ClassroomAudioSection } from './ClassroomAudioSection';
+import { FloatingWidgets } from './FloatingWidgets';
 import {
   MATH_SYMBOLS,
   FONTS_LIST,
@@ -150,7 +151,103 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
   const [symbolPickerOpen, setSymbolPickerOpen] = useState(false);
   const [saveStatus, setSaveStatus] = useState<'saved' | 'saving'>('saved');
   const [pageAppearance, setPageAppearance] = useState<'white' | 'dark' | 'auto'>('white');
+  const [pageStyle, setPageStyle] = useState<'lisa' | 'pautada' | 'pontilhada' | 'quadriculada'>('lisa');
+  const [pageBgColor, setPageBgColor] = useState<string>('#ffffff');
   const [showAudioSidebar, setShowAudioSidebar] = useState(false);
+  
+  // Custom week and elegant Undo / Redo history stacks
+  const [weekValue, setWeekValue] = useState('01');
+  const [undoStack, setUndoStack] = useState<{ contentHtml: string; canvasElements: CanvasElement[]; drawings: any[] }[]>([]);
+  const [redoStack, setRedoStack] = useState<{ contentHtml: string; canvasElements: CanvasElement[]; drawings: any[] }[]>([]);
+
+  const pushToUndo = () => {
+    if (!lesson) return;
+    const currentHtml = editorContentRef.current ? editorContentRef.current.innerHTML : lesson.contentHtml;
+    setUndoStack(prev => {
+      const updated = [...prev, {
+        contentHtml: currentHtml,
+        canvasElements: [...canvasElements],
+        drawings: lesson.drawings ? [...lesson.drawings] : []
+      }];
+      if (updated.length > 50) updated.shift(); // Limit history buffer size
+      return updated;
+    });
+    setRedoStack([]); // Clear redo stack on user action
+  };
+
+  const handleUndo = () => {
+    if (undoStack.length === 0 || !lesson) return;
+    const currentHtml = editorContentRef.current ? editorContentRef.current.innerHTML : lesson.contentHtml;
+    const currentState = {
+      contentHtml: currentHtml,
+      canvasElements: [...canvasElements],
+      drawings: lesson.drawings ? [...lesson.drawings] : []
+    };
+
+    const previousState = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    setRedoStack(prev => [...prev, currentState]);
+
+    // Apply states
+    setCanvasElements(previousState.canvasElements);
+    if (editorContentRef.current) {
+      editorContentRef.current.innerHTML = previousState.contentHtml;
+    }
+
+    const updated: Lesson = {
+      ...lesson,
+      contentHtml: previousState.contentHtml,
+      canvasElements: previousState.canvasElements,
+      drawings: previousState.drawings,
+      updatedAt: new Date().toISOString(),
+    };
+    setLesson(updated);
+
+    StorageService.update((draft) => {
+      const idx = draft.lessons.findIndex((l) => l.id === lesson.id);
+      if (idx !== -1) {
+        draft.lessons[idx] = updated;
+      }
+    });
+    updateDocumentMetrics();
+  };
+
+  const handleRedo = () => {
+    if (redoStack.length === 0 || !lesson) return;
+    const currentHtml = editorContentRef.current ? editorContentRef.current.innerHTML : lesson.contentHtml;
+    const currentState = {
+      contentHtml: currentHtml,
+      canvasElements: [...canvasElements],
+      drawings: lesson.drawings ? [...lesson.drawings] : []
+    };
+
+    const nextState = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    setUndoStack(prev => [...prev, currentState]);
+
+    // Apply states
+    setCanvasElements(nextState.canvasElements);
+    if (editorContentRef.current) {
+      editorContentRef.current.innerHTML = nextState.contentHtml;
+    }
+
+    const updated: Lesson = {
+      ...lesson,
+      contentHtml: nextState.contentHtml,
+      canvasElements: nextState.canvasElements,
+      drawings: nextState.drawings,
+      updatedAt: new Date().toISOString(),
+    };
+    setLesson(updated);
+
+    StorageService.update((draft) => {
+      const idx = draft.lessons.findIndex((l) => l.id === lesson.id);
+      if (idx !== -1) {
+        draft.lessons[idx] = updated;
+      }
+    });
+    updateDocumentMetrics();
+  };
 
   // Image editing
   const [editingDocImage, setEditingDocImage] = useState<HTMLImageElement | null>(null);
@@ -617,6 +714,58 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
     }
   };
 
+  const handleInsertPostit = () => {
+    pushToUndo();
+    const newEl: CanvasElement = {
+      id: 'postit_' + Date.now(),
+      type: 'postit',
+      x: 120,
+      y: 180,
+      width: 180,
+      height: 180,
+      zIndex: canvasElements.length + 1,
+      content: 'Escreva suas anotações aqui...',
+      style: {
+        backgroundColor: '#efebe9', // Default to aesthetic beige coffee
+        color: '#4e342e',
+        fontSize: 13,
+        borderRadius: 8,
+        fontFamily: 'Caveat',
+        borderColor: 'tape' // Default to taped aesthetic matching reference images
+      }
+    };
+    setCanvasElements([...canvasElements, newEl]);
+    handleSave(true);
+  };
+
+  const handleInsertFlashcard = () => {
+    pushToUndo();
+    const newEl: CanvasElement = {
+      id: 'flashcard_' + Date.now(),
+      type: 'flashcard',
+      x: 340,
+      y: 180,
+      width: 230,
+      height: 140,
+      zIndex: canvasElements.length + 1,
+      content: JSON.stringify({
+        front: 'Pergunta do Flashcard?',
+        back: 'Resposta do Flashcard!',
+        flipped: false,
+        title: 'Revisão Rápida'
+      }),
+      style: {
+        backgroundColor: '#ffe4e6',
+        color: '#9f1239',
+        fontSize: 13,
+        borderRadius: 12,
+        fontFamily: 'Plus Jakarta Sans'
+      }
+    };
+    setCanvasElements([...canvasElements, newEl]);
+    handleSave(true);
+  };
+
   // Drawing event capturing pointers
   const startDrawing = (e: React.MouseEvent<HTMLCanvasElement>) => {
     if (!isDrawingMode || !canvasRef.current) return;
@@ -802,6 +951,34 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5">
+          {/* Desfazer / Refazer (Undo / Redo) Arrows */}
+          <div className="flex items-center gap-1 bg-[#1A1A1E] border border-[#242427] p-1 rounded-xl shadow-sm no-print mr-1">
+            <button
+              onClick={handleUndo}
+              disabled={undoStack.length === 0}
+              className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                undoStack.length > 0 
+                  ? 'text-gray-200 hover:bg-[#2A2A2E] hover:text-amber-400 hover:scale-105 active:scale-95' 
+                  : 'text-[#3F3F46] cursor-not-allowed opacity-40'
+              }`}
+              title="Desfazer última alteração (Ctrl+Z)"
+            >
+              <Undo className="w-3.5 h-3.5" />
+            </button>
+            <button
+              onClick={handleRedo}
+              disabled={redoStack.length === 0}
+              className={`p-1.5 rounded-lg transition-all cursor-pointer ${
+                redoStack.length > 0 
+                  ? 'text-gray-200 hover:bg-[#2A2A2E] hover:text-amber-400 hover:scale-105 active:scale-95' 
+                  : 'text-[#3F3F46] cursor-not-allowed opacity-40'
+              }`}
+              title="Refazer alteração (Ctrl+Y)"
+            >
+              <Redo className="w-3.5 h-3.5" />
+            </button>
+          </div>
+
           {/* Quick Saving State */}
           <span className="text-[10px] font-mono text-[#71717A]">
             {saveStatus === 'saving' ? 'Salvando...' : 'Documento Salvo'}
@@ -1356,6 +1533,24 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
             >
               <StickyNote className="w-3.5 h-3.5 text-stone-400" />
               <span>Caixa Texto</span>
+            </button>
+
+            <button
+              onClick={handleInsertPostit}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Inserir Post-it interativo e arrastável"
+            >
+              <StickyNote className="w-3.5 h-3.5 text-yellow-400" />
+              <span>Inserir Post-it</span>
+            </button>
+
+            <button
+              onClick={handleInsertFlashcard}
+              className="px-2.5 py-1.5 bg-[#2D2D33] hover:bg-[#3F3F46] rounded-lg text-white transition cursor-pointer flex items-center gap-1.5"
+              title="Inserir Flashcard de estudo interativo e rotacionável"
+            >
+              <Puzzle className="w-3.5 h-3.5 text-rose-400" />
+              <span>Inserir Flashcard</span>
             </button>
 
             <button
@@ -2010,11 +2205,63 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
               
               {/* Scale Zoom container */}
               <div
-                className="flex flex-col relative transition-transform duration-100 ease-out origin-top"
+                className="flex flex-col relative transition-transform duration-100 ease-out origin-top items-center"
                 style={{
                   transform: `scale(${zoom / 100})`,
                 }}
               >
+                {/* Page Customization Panel */}
+                <div className="flex flex-wrap items-center justify-between bg-[#1C1C1F] border border-[#2D2D30] rounded-xl p-2.5 mb-4 w-full shadow-lg no-print gap-3 select-none">
+                  <div className="flex items-center gap-1.5 font-sans">
+                    <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mr-1">Estilo da Página:</span>
+                    {(['lisa', 'pautada', 'pontilhada', 'quadriculada'] as const).map((style) => (
+                      <button
+                        key={style}
+                        onClick={() => setPageStyle(style)}
+                        className={`px-2.5 py-1 text-[10px] font-bold rounded-lg transition-all capitalize cursor-pointer ${
+                          pageStyle === style
+                            ? 'bg-blue-600 text-white shadow-md'
+                            : 'bg-[#27272A] text-zinc-300 hover:text-white hover:bg-[#323238]'
+                        }`}
+                      >
+                        {style === 'lisa' ? 'Lisa' : style === 'pautada' ? 'Pautada' : style === 'pontilhada' ? 'Pontilhada' : 'Quadriculada'}
+                      </button>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-extrabold text-zinc-400 uppercase tracking-wider mr-1">Cor do Papel:</span>
+                    <div className="flex items-center gap-1">
+                      {[
+                        { hex: '#ffffff', name: 'Branco' },
+                        { hex: '#fffef0', name: 'Marfim' },
+                        { hex: '#fcf8ec', name: 'Areia' },
+                        { hex: '#f3fbf2', name: 'Verde' },
+                        { hex: '#f2f8fc', name: 'Azul' },
+                        { hex: '#fcf3f6', name: 'Rosa' },
+                        { hex: '#fbf2fc', name: 'Lilás' },
+                        { hex: '#121214', name: 'Escuro' },
+                      ].map((col) => (
+                        <button
+                          key={col.hex}
+                          onClick={() => {
+                            setPageBgColor(col.hex);
+                            if (col.hex === '#121214') {
+                              setPageAppearance('dark');
+                            } else {
+                              setPageAppearance('white');
+                            }
+                          }}
+                          className={`w-4 h-4 rounded-full border transition-all cursor-pointer hover:scale-110 ${
+                            pageBgColor === col.hex ? 'ring-2 ring-blue-500 scale-105 border-white' : 'border-zinc-700'
+                          }`}
+                          style={{ backgroundColor: col.hex }}
+                          title={col.name}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
                 {/* Horizontal Scale Ruler */}
                 {rulerVisible && (
                   <div
@@ -2068,7 +2315,7 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
 
                   {/* REALISTIC DOCUMENT SHEET (White / Dark paper, A4 style, shadow) */}
                   <div
-                    className={`relative ${sheetStyle.bg} ${sheetStyle.text} border ${sheetStyle.border} transition-all duration-200 select-text overflow-hidden`}
+                    className={`relative border ${sheetStyle.border} transition-all duration-200 select-text overflow-visible`}
                     style={{
                       width: pageWidth,
                       minHeight: pageHeight,
@@ -2076,45 +2323,38 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
                       paddingRight: indentRight > 0 ? `${indentRight}cm` : undefined,
                       paddingTop: spacingBefore > 0 ? `${spacingBefore}pt` : undefined,
                       paddingBottom: spacingAfter > 0 ? `${spacingAfter}pt` : undefined,
+                      backgroundColor: pageBgColor,
+                      color: pageBgColor === '#121214' ? '#EDEDED' : '#27272A',
+                      backgroundImage: 
+                        pageStyle === 'pautada'
+                          ? `linear-gradient(rgba(148, 163, 184, ${pageBgColor === '#121214' ? '0.15' : '0.35'}) 1px, transparent 1px)`
+                          : pageStyle === 'pontilhada'
+                          ? `radial-gradient(rgba(148, 163, 184, ${pageBgColor === '#121214' ? '0.2' : '0.45'}) 1.2px, transparent 1.2px)`
+                          : pageStyle === 'quadriculada'
+                          ? `linear-gradient(to right, rgba(148, 163, 184, ${pageBgColor === '#121214' ? '0.15' : '0.35'}) 1px, transparent 1px), linear-gradient(to bottom, rgba(148, 163, 184, ${pageBgColor === '#121214' ? '0.15' : '0.35'}) 1px, transparent 1px)`
+                          : undefined,
+                      backgroundSize:
+                        pageStyle === 'pautada'
+                          ? '100% 28px'
+                          : pageStyle === 'pontilhada' || pageStyle === 'quadriculada'
+                          ? '24px 24px'
+                          : undefined,
+                      backgroundPosition: 
+                        pageStyle === 'pautada'
+                          ? '0 14px'
+                          : pageStyle === 'pontilhada' || pageStyle === 'quadriculada'
+                          ? '12px 12px'
+                          : undefined,
                     }}
                     id="doc-paper-sheet"
                   >
                     <div className={marginClasses[margins]}>
                       
-                      {/* Document Header Metadata Section (Fully Editable 3-Column Header) */}
-                      <div className={`p-4 mb-6 rounded-xl border flex items-stretch divide-x transition-all select-none ${
-                        sheetStyle.isWhite 
-                          ? 'bg-zinc-50/80 border-zinc-200/80 divide-zinc-200' 
-                          : 'bg-[#18181b]/50 border-zinc-800/80 divide-zinc-800'
-                      }`}>
-                        {/* RESUMO COLUMN */}
-                        <div className="flex-1 px-3 flex flex-col justify-between">
-                          <span className={`text-[9px] font-extrabold tracking-widest uppercase mb-1.5 ${
-                            sheetStyle.isWhite ? 'text-zinc-400' : 'text-zinc-500'
-                          }`}>
-                            RESUMO / MATÉRIA
-                          </span>
-                          <input
-                            type="text"
-                            value={headerText}
-                            onChange={(e) => {
-                              setHeaderText(e.target.value);
-                              handleSave(true, undefined, undefined, e.target.value);
-                            }}
-                            placeholder="MATÉRIA"
-                            className={`w-full bg-transparent border-none p-0 text-xs font-bold tracking-tight focus:ring-0 focus:outline-none focus:border-none ${
-                              sheetStyle.isWhite ? 'text-zinc-800 placeholder-zinc-300' : 'text-white placeholder-zinc-700'
-                            }`}
-                          />
-                        </div>
-
-                        {/* TÍTULO COLUMN */}
-                        <div className="flex-[1.5] px-4 flex flex-col justify-between">
-                          <span className={`text-[9px] font-extrabold tracking-widest uppercase mb-1.5 ${
-                            sheetStyle.isWhite ? 'text-zinc-400' : 'text-zinc-500'
-                          }`}>
-                            TÍTULO DO DOCUMENTO
-                          </span>
+                      {/* Sogno Digital Hub Inspired Planner Header (2-Column Aesthetic Box) */}
+                      <div className="grid grid-cols-3 border border-[#8A7C72] bg-[#FAF8F5]/90 text-[#4A3C31] rounded-lg overflow-hidden mb-6 divide-x divide-[#8A7C72] select-none font-serif shadow-sm no-print">
+                        {/* Left Column: Title */}
+                        <div className="col-span-2 p-3 flex flex-col justify-between min-h-[58px]">
+                          <span className="text-[10px] italic text-[#8A7C72] font-semibold tracking-wide">Title :</span>
                           <input
                             type="text"
                             value={title}
@@ -2122,31 +2362,35 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
                               setTitle(e.target.value);
                               handleSave(true, e.target.value);
                             }}
-                            placeholder="TÍTULO DA MATÉRIA"
-                            className={`w-full bg-transparent border-none p-0 text-sm font-extrabold tracking-tight focus:ring-0 focus:outline-none focus:border-none ${
-                              sheetStyle.isWhite ? 'text-blue-600 placeholder-zinc-300' : 'text-sky-400 placeholder-zinc-700'
-                            }`}
+                            placeholder="Título da Anotação..."
+                            className="w-full bg-transparent border-none p-0 text-sm font-extrabold focus:ring-0 focus:outline-none focus:border-none text-[#4A3C31] placeholder-stone-400 font-serif"
                           />
                         </div>
 
-                        {/* DATA COLUMN */}
-                        <div className="flex-[0.8] pl-4 pr-2 flex flex-col justify-between">
-                          <span className={`text-[9px] font-extrabold tracking-widest uppercase mb-1.5 ${
-                            sheetStyle.isWhite ? 'text-zinc-400' : 'text-zinc-500'
-                          }`}>
-                            DATA DA MATÉRIA
-                          </span>
-                          <input
-                            type="date"
-                            value={date}
-                            onChange={(e) => {
-                              setDate(e.target.value);
-                              handleSave(true, undefined, e.target.value);
-                            }}
-                            className={`w-full bg-transparent border-none p-0 text-xs font-bold tracking-tight focus:ring-0 focus:outline-none focus:border-none cursor-pointer ${
-                              sheetStyle.isWhite ? 'text-zinc-700 [color-scheme:light]' : 'text-[#EDEDED] [color-scheme:dark]'
-                            }`}
-                          />
+                        {/* Right Column: Date and Week */}
+                        <div className="p-3 flex flex-col justify-between min-h-[58px] divide-y divide-[#8A7C72]/30">
+                          <div className="pb-1.5 flex items-center justify-between">
+                            <span className="text-[10px] italic text-[#8A7C72] font-semibold tracking-wide">Date :</span>
+                            <input
+                              type="date"
+                              value={date}
+                              onChange={(e) => {
+                                setDate(e.target.value);
+                                handleSave(true, undefined, e.target.value);
+                              }}
+                              className="bg-transparent border-none p-0 text-[10px] font-bold focus:ring-0 focus:outline-none focus:border-none cursor-pointer text-[#4A3C31] [color-scheme:light]"
+                            />
+                          </div>
+                          <div className="pt-1.5 flex items-center justify-between">
+                            <span className="text-[10px] italic text-[#8A7C72] font-semibold tracking-wide">Discipline :</span>
+                            <input
+                              type="text"
+                              value={weekValue}
+                              onChange={(e) => setWeekValue(e.target.value)}
+                              placeholder="Geral"
+                              className="bg-transparent border-none p-0 text-[10px] font-bold focus:ring-0 focus:outline-none focus:border-none text-[#4A3C31] placeholder-stone-400 w-32 flex-1 ml-2 text-right"
+                            />
+                          </div>
                         </div>
                       </div>
 
@@ -2164,50 +2408,14 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
                         />
                       )}
 
-                      {/* Sticky Post-it cards */}
-                      {canvasElements.map((el) => (
-                        <div
-                          key={el.id}
-                          className="absolute p-3 rounded-xl shadow-lg border border-[#3A3215] bg-[#1E1B13] cursor-move z-20 group transition-shadow"
-                          style={{
-                            top: `${el.y}px`,
-                            left: `${el.x}px`,
-                            width: `${el.width}px`,
-                          }}
-                          draggable
-                          onDragEnd={(e) => {
-                            const rect = e.currentTarget.parentElement?.getBoundingClientRect();
-                            if (!rect) return;
-                            const newX = e.clientX - rect.left - el.width / 2;
-                            const newY = e.clientY - rect.top - el.height / 2;
-                            setCanvasElements(
-                              canvasElements.map((item) =>
-                                item.id === el.id ? { ...item, x: Math.max(10, newX), y: Math.max(10, newY) } : item
-                              )
-                            );
-                          }}
-                        >
-                          <div className="flex items-center justify-between pb-1 border-b border-amber-500/20 mb-1">
-                            <span className="text-[10px] font-bold text-amber-400 uppercase">Anotação Rápida</span>
-                            <button
-                              onClick={() => setCanvasElements(canvasElements.filter((item) => item.id !== el.id))}
-                              className="opacity-0 group-hover:opacity-100 text-red-400 hover:text-red-300 transition cursor-pointer"
-                            >
-                              <Trash2 className="w-3 h-3" />
-                            </button>
-                          </div>
-                          <textarea
-                            value={el.content}
-                            onChange={(e) =>
-                              setCanvasElements(
-                                canvasElements.map((item) => (item.id === el.id ? { ...item, content: e.target.value } : item))
-                              )
-                            }
-                            className="w-full bg-transparent text-xs text-amber-200/90 resize-none focus:outline-none leading-tight"
-                            rows={3}
-                          />
-                        </div>
-                      ))}
+                      {/* Interactive Floating Post-its and Flashcards */}
+                      <FloatingWidgets
+                        canvasElements={canvasElements}
+                        onChange={(updated) => {
+                          setCanvasElements(updated);
+                          handleSave(true);
+                        }}
+                      />
 
                       {/* Main Rich text editable container */}
                       <div
@@ -2221,8 +2429,8 @@ export const AcademicEditor: React.FC<AcademicEditorProps> = ({
                         onClick={handleEditorClick}
                         className={`academic-editor-content focus:outline-none min-h-[420px] leading-relaxed text-sm sm:text-base space-y-4`}
                         style={{
-                          fontFamily,
-                          lineHeight: lineSpacing,
+                          fontFamily: '"Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif',
+                          lineHeight: pageStyle === 'pautada' ? '28px' : (pageStyle === 'pontilhada' || pageStyle === 'quadriculada') ? '24px' : lineSpacing,
                           columnCount: Number(columns),
                           columnGap: '2rem',
                         }}

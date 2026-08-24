@@ -175,6 +175,50 @@ function getGeminiClient(): GoogleGenAI | null {
   });
 }
 
+// Resilient API Wrapper with Exponential Backoff
+async function generateContentWithRetry(
+  ai: any,
+  modelName: string,
+  contents: any,
+  config: any = {},
+  maxRetries = 3,
+  delayMs = 1500
+): Promise<any> {
+  let attempt = 0;
+  while (attempt < maxRetries) {
+    try {
+      const response = await ai.models.generateContent({
+        model: modelName,
+        contents,
+        config,
+      });
+      return response;
+    } catch (error: any) {
+      attempt++;
+      console.warn(`[Gemini API] Tentativa ${attempt} falhou. Erro: ${error?.message || error}`);
+      
+      const errorStr = String(error?.message || "").toUpperCase();
+      const errorStatus = error?.status || error?.code;
+      
+      const isRetriable = 
+        errorStr.includes("503") || 
+        errorStr.includes("UNAVAILABLE") || 
+        errorStr.includes("RESOURCE_EXHAUSTED") ||
+        errorStr.includes("TEMPORARILY OVERLOADED") ||
+        errorStatus === 503 ||
+        errorStatus === 429;
+        
+      if (isRetriable && attempt < maxRetries) {
+        const sleepTime = delayMs * Math.pow(2, attempt - 1);
+        console.log(`[Gemini API] Aguardando ${sleepTime}ms antes da tentativa ${attempt + 1}...`);
+        await new Promise((resolve) => setTimeout(resolve, sleepTime));
+      } else {
+        throw error;
+      }
+    }
+  }
+}
+
 // Health check endpoint
 app.get("/api/health", (_req, res) => {
   res.json({ status: "ok", time: new Date().toISOString() });
@@ -208,9 +252,10 @@ Instruções específicas:
 4. Retorne a resposta em HTML limpo pronto para o editor de anotações (use tags: <h2>, <h3>, <p>, <ul>, <ol>, <li>, <blockquote>, <strong>, <em>, <code>).
 ${instructions ? `Instruções adicionais do usuário: ${instructions}` : ""}`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: [
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      [
         {
           parts: [
             {
@@ -224,8 +269,8 @@ ${instructions ? `Instruções adicionais do usuário: ${instructions}` : ""}`;
             },
           ],
         },
-      ],
-    });
+      ]
+    );
 
     const transcribedHtml = response.text || "";
     return res.json({ success: true, contentHtml: transcribedHtml });
@@ -307,13 +352,14 @@ ${contentText}
 """`;
     }
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: userPrompt,
-      config: {
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      userPrompt,
+      {
         systemInstruction: systemPrompt,
-      },
-    });
+      }
+    );
 
     return res.json({ success: true, result: response.text || "" });
   } catch (error: any) {
@@ -349,13 +395,14 @@ Conteúdo:
 ${contentText}
 """`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-      config: {
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      prompt,
+      {
         responseMimeType: "application/json",
-      },
-    });
+      }
+    );
 
     const jsonText = response.text?.trim() || "[]";
     const flashcards = JSON.parse(jsonText);
@@ -419,13 +466,14 @@ Conteúdo:
 ${contentText}
 """`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-      config: {
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      prompt,
+      {
         responseMimeType: "application/json",
-      },
-    });
+      }
+    );
 
     const jsonText = response.text?.trim() || "{}";
     const mindmapData = JSON.parse(jsonText);
@@ -467,13 +515,14 @@ Cada segmento deve ter o seguinte formato JSON exato:
 
 Não inclua formatação markdown adicionais ou blocos de código além do JSON puro.`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-      config: {
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      prompt,
+      {
         responseMimeType: "application/json",
-      },
-    });
+      }
+    );
 
     const segmentsText = response.text?.trim() || "[]";
     const segments = JSON.parse(segmentsText);
@@ -521,10 +570,11 @@ Transcrição Bruta:
 ${transcriptionText}
 """`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-    });
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      prompt
+    );
 
     return res.json({
       success: true,
@@ -572,10 +622,11 @@ Transcrição da Aula:
 ${transcriptionText}
 """`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-    });
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      prompt
+    );
 
     return res.json({
       success: true,
@@ -618,10 +669,11 @@ Transcrição da Aula:
 ${transcriptionText}
 """`;
 
-    const response = await ai.models.generateContent({
-      model: "gemini-3.7-flash",
-      contents: prompt,
-    });
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      prompt
+    );
 
     return res.json({
       success: true,
@@ -633,19 +685,216 @@ ${transcriptionText}
   }
 });
 
-// Real-Time PWA Synchronization with secure multi-tenant isolation
+// Dynamic AI-Generated Vet Study Questions for Games
+app.post("/api/games/generate-questions", async (req, res) => {
+  try {
+    const { subject, difficulty, notesContent, mode } = req.body;
+    const targetSubject = subject || "Geral";
+    const targetDifficulty = difficulty || "Médio";
+    const isExamMode = mode === "Prova";
+
+    const ai = getGeminiClient();
+    if (!ai) {
+      throw new Error("Cliente IA indisponível");
+    }
+
+    const systemPrompt = `Você é um gerador especialista em gamificação acadêmica para Medicina Veterinária.
+Você deve criar 3 perguntas de estudo altamente didáticas sobre a disciplina "${targetSubject}" no nível de dificuldade "${targetDifficulty}".
+Se o usuário forneceu trechos de anotações (abaixo), baseie suas perguntas estritamente nesse conteúdo acadêmico para garantir que o estudante revise sua própria matéria!
+
+Sua resposta DEVE ser um objeto JSON puro contendo uma lista "questions". Não inclua blocos markdown (como \`\`\`json).
+Cada pergunta deve ter exatamente um destes tipos:
+1. "multiple_choice" (múltipla escolha)
+2. "true_false" (verdadeiro ou falso)
+3. "association" (associar conceitos correlatos)
+4. "fill_blank" (completar a frase)
+5. "sequence" (ordenar etapas de um processo)
+6. "quick" (pergunta de resposta rápida baseada em tempo)
+
+FORMATO DAS PERGUNTAS NO JSON:
+
+- Para "multiple_choice":
+  {
+    "id": "gerado_unico_1",
+    "type": "multiple_choice",
+    "question": "Pergunta de múltipla escolha...",
+    "options": ["Opção A", "Opção B", "Opção C", "Opção D"],
+    "correctAnswer": "Opção correta exatamente como escrita no array",
+    "explanation": "Explicação curta, clara e didática focando no aprendizado."
+  }
+
+- Para "true_false":
+  {
+    "id": "gerado_unico_2",
+    "type": "true_false",
+    "question": "Afirmação para julgar...",
+    "options": ["Verdadeiro", "Falso"],
+    "correctAnswer": "Verdadeiro" ou "Falso",
+    "explanation": "Explicação sucinta explicando o porquê."
+  }
+
+- Para "association":
+  {
+    "id": "gerado_unico_3",
+    "type": "association",
+    "question": "Associe os termos corretos da esquerda com os da direita:",
+    "associationPairs": [
+      {"left": "Hemoglobina", "right": "Transporte de Oxigênio"},
+      {"left": "Mioglobina", "right": "Armazenamento no Músculo"},
+      {"left": "Albumina", "right": "Pressão Oncótica"}
+    ],
+    "explanation": "Explicação didática dos pares associados."
+  }
+
+- Para "fill_blank":
+  {
+    "id": "gerado_unico_4",
+    "type": "fill_blank",
+    "question": "O principal órgão responsável pela filtração de toxinas no corpo animal é o [blank].",
+    "correctAnswer": "Fígado",
+    "explanation": "Explicação didática explicando a função do órgão."
+  }
+
+- Para "sequence":
+  {
+    "id": "gerado_unico_5",
+    "type": "sequence",
+    "question": "Ordene as etapas do fluxo sanguíneo no coração, começando pelo átrio direito:",
+    "sequenceSteps": ["Átrio Direito", "Ventrículo Direito", "Artéria Pulmonar", "Átrio Esquerdo"],
+    "correctSequence": [0, 1, 2, 3],
+    "explanation": "Explicação resumindo o caminho do sangue oxigenado e desoxigenado."
+  }
+
+- Para "quick":
+  {
+    "id": "gerado_unico_6",
+    "type": "quick",
+    "question": "Pergunta rápida: Qual zoonose é transmitida principalmente pela saliva de mamíferos infectados?",
+    "options": ["Raiva", "Leptospirose", "Brucelose", "Toxoplasmose"],
+    "correctAnswer": "Raiva",
+    "explanation": "A raiva é uma encefalite viral fatal transmitida pela saliva via mordedura."
+  }
+
+Varie os formatos entre as 3 perguntas geradas para que a experiência do estudante seja rica e dinâmica!`;
+
+    const userPrompt = notesContent 
+      ? `Anotações do Estudante para basear as perguntas:
+"""
+${notesContent}
+"""
+
+Gere 3 perguntas fantásticas sobre "${targetSubject}" de dificuldade "${targetDifficulty}" (Modo: ${isExamMode ? "Prova" : "Revisão"}).`
+      : `Gere 3 perguntas fantásticas sobre "${targetSubject}" de nível "${targetDifficulty}" (Modo: ${isExamMode ? "Prova" : "Revisão"}).`;
+
+    const response = await generateContentWithRetry(
+      ai,
+      "gemini-3.7-flash",
+      userPrompt,
+      {
+        systemInstruction: systemPrompt,
+        responseMimeType: "application/json",
+      }
+    );
+
+    const jsonText = response.text?.trim() || "{}";
+    const questionsData = JSON.parse(jsonText);
+    
+    if (questionsData && Array.isArray(questionsData.questions)) {
+      return res.json({ success: true, questions: questionsData.questions });
+    }
+    throw new Error("Formato de JSON inválido");
+
+  } catch (error: any) {
+    console.warn("[Gemini API - Games] Erro ao gerar perguntas dinâmicas, usando fallback:", error?.message || error);
+    
+    // Generous, high-fidelity default fallback questions based on different subjects
+    const fallbackDatabase: Record<string, any[]> = {
+      "Anatomia": [
+        {
+          id: "fb-anat-1",
+          type: "multiple_choice",
+          question: "Qual é o maior osso sesamoide do esqueleto de animais domésticos como o cão e o cavalo?",
+          options: ["Patela", "Osso Navicular", "Falange Distal", "Fêmur"],
+          correctAnswer: "Patela",
+          explanation: "A patela é o maior osso sesamoide do corpo dos mamíferos, inserida no tendão do músculo quadríceps femoral."
+        },
+        {
+          id: "fb-anat-2",
+          type: "true_false",
+          question: "Diferente dos cães, os cavalos possuem uma vesícula biliar extremamente desenvolvida para armazenar a bile digestiva de dietas ricas em lipídeos.",
+          options: ["Verdadeiro", "Falso"],
+          correctAnswer: "Falso",
+          explanation: "Cavalos não possuem vesícula biliar. A secreção da bile produzida pelo fígado ocorre de forma contínua diretamente no duodeno."
+        },
+        {
+          id: "fb-anat-3",
+          type: "association",
+          question: "Associe corretamente as divisões anatômicas do estômago dos ruminantes (bovinos/ovinos):",
+          associationPairs: [
+            { left: "Rúmen", right: "Câmara de fermentação microbiana" },
+            { left: "Retículo", right: "Aparência de favo de mel (triparia)" },
+            { left: "Omaso", right: "Absorção de água e minerais" },
+            { left: "Abomaso", right: "Estômago glandular verdadeiro (enzimático)" }
+          ],
+          explanation: "O rúmen fermenta, o retículo filtra, o omaso absorve água e o abomaso digere quimicamente."
+        }
+      ],
+      "Fisiologia": [
+        {
+          id: "fb-fisio-1",
+          type: "multiple_choice",
+          question: "Qual hormônio secretado pelas células alfa das ilhotas pancreáticas é responsável por elevar a glicemia através da glicogenólise hepática?",
+          options: ["Insulina", "Glucagon", "Somatostatina", "Adrenalina"],
+          correctAnswer: "Glucagon",
+          explanation: "O glucagon é o hormônio hiperglicemiante por excelência, estimulando o fígado a quebrar o glicogênio em glicose."
+        },
+        {
+          id: "fb-fisio-2",
+          type: "fill_blank",
+          question: "A principal unidade funcional do rim, responsável pela filtração glomerular, reabsorção e secreção tubular de substâncias, é chamada de [blank].",
+          correctAnswer: "Néfron",
+          explanation: "O néfron é composto pelo corpúsculo renal e um sistema tubular complexo onde o sangue é purificado e a urina é formada."
+        }
+      ],
+      "Clinica": [
+        {
+          id: "fb-clin-1",
+          type: "multiple_choice",
+          question: "Ao atender um cão com suspeita de parvovirose apresentando gastroenterite hemorrágica severa, qual deve ser a prioridade terapêutica inicial?",
+          options: ["Fluidoterapia endovenosa e correção eletrolítica", "Vermifugação imediata", "Antibioticoterapia oral de largo espectro", "Suplementação de ferro por via intramuscular"],
+          correctAnswer: "Fluidoterapia endovenosa e correção eletrolítica",
+          explanation: "A desidratação grave e o choque hipovolêmico por perda de líquidos e eletrólitos são as principais causas de óbito na parvovirose."
+        }
+      ]
+    };
+
+    // Pick fallback questions based on requested subject, default to Anatomia if not found
+    const key = Object.keys(fallbackDatabase).find(k => k.toLowerCase() === req.body.subject?.toLowerCase()) || "Anatomia";
+    const questions = fallbackDatabase[key] || fallbackDatabase["Anatomia"];
+
+    return res.json({
+      success: true,
+      questions: questions,
+      isFallback: true
+    });
+  }
+});
+
+// Real-Time PWA Synchronization with secure multi-tenant isolation or anonymous local fallback
 app.post("/api/sync", async (req, res) => {
   try {
     const authHeader = req.headers.authorization;
     const token = authHeader?.split(" ")[1];
     
-    if (!token || !activeSessions[token]) {
-      return res.status(401).json({ error: "Acesso não autorizado. Sessão expirada ou inválida." });
-    }
+    let userDbPath = path.join(DATA_DIR, "database_local.json");
+    let userIdentifier = "local_anonymous";
 
-    const session = activeSessions[token];
-    const safeEmail = session.email.replace(/[^a-zA-Z0-9]/g, "_");
-    const userDbPath = path.join(DATA_DIR, `database_${safeEmail}.json`);
+    if (token && activeSessions[token]) {
+      const session = activeSessions[token];
+      const safeEmail = session.email.replace(/[^a-zA-Z0-9]/g, "_");
+      userDbPath = path.join(DATA_DIR, `database_${safeEmail}.json`);
+      userIdentifier = session.email;
+    }
 
     const { database, clientLastSavedAt, force } = req.body;
 
@@ -655,7 +904,7 @@ app.post("/api/sync", async (req, res) => {
         const fileContent = fs.readFileSync(userDbPath, "utf8");
         serverDb = JSON.parse(fileContent);
       } catch (e) {
-        console.warn(`[Sync] Erro ao ler banco do usuário ${session.email}, ignorando:`, e);
+        console.warn(`[Sync] Erro ao ler banco do usuário ${userIdentifier}, ignorando:`, e);
       }
     }
 
@@ -675,7 +924,7 @@ app.post("/api/sync", async (req, res) => {
 
       // If server version is newer and different, signal conflict
       if (serverTime > clientTime && serverDb.lastSavedAt !== database.lastSavedAt) {
-        console.log(`[Sync] Conflito detectado para ${session.email}: Servidor (${serverDb.lastSavedAt}) > Cliente (${clientLastSavedAt})`);
+        console.log(`[Sync] Conflito detectado para ${userIdentifier}: Servidor (${serverDb.lastSavedAt}) > Cliente (${clientLastSavedAt})`);
         return res.json({
           conflict: true,
           serverDatabase: serverDb,
@@ -686,7 +935,7 @@ app.post("/api/sync", async (req, res) => {
 
     // Overwrite user-isolated server database
     fs.writeFileSync(userDbPath, JSON.stringify(database, null, 2), "utf8");
-    console.log(`[Sync] Sincronização de ${session.email} bem-sucedida. lastSavedAt: ${database.lastSavedAt}`);
+    console.log(`[Sync] Sincronização de ${userIdentifier} bem-sucedida. lastSavedAt: ${database.lastSavedAt}`);
 
     return res.json({
       success: true,

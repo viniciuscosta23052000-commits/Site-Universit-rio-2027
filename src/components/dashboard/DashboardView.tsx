@@ -41,6 +41,7 @@ import {
   Heart,
   FileText,
   Microscope,
+  Gamepad2,
 } from 'lucide-react';
 import confetti from 'canvas-confetti';
 
@@ -408,6 +409,13 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                           >
                             <Flame className="w-3.5 h-3.5 text-red-400" />
                             Foco Pomodoro
+                          </button>
+                          <button
+                            onClick={() => onOpenTab?.('games')}
+                            className="flex items-center gap-2 px-4 py-2.5 rounded-full text-xs font-semibold bg-white/10 hover:bg-white/15 text-white border border-white/15 backdrop-blur-md hover:scale-102 transition duration-200 cursor-pointer"
+                          >
+                            <Gamepad2 className="w-3.5 h-3.5 text-emerald-400" />
+                            Jogos Educativos
                           </button>
                           {(() => {
                             const semDiscs = db.disciplines.filter((d) => d.semesterId === currentSemesterId);
